@@ -1,8 +1,11 @@
 from hive.envs.base import BaseEnv
 from crystal_design.utils import get_device
-from gflownet.tasks import SEHTask
+from gflownet.tasks.seh_frag import SEHTask
+from gflownet.envs.frag_mol_env import FragMolBuildingEnvContext
+from gflownet.envs.graph_building_env import GraphActionType, GraphBuildingEnv
 from typing import Tuple
 from torchtyping import TensorType
+import torch
 
 OBSERVATION_TYPE = None
 
@@ -44,6 +47,10 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
 
         self.state = self._env.new()
         self.done = False
+        self.step_idx = 0
+        self.max_len = 8
+        self.max_nodes = 8
+        self.sanitize_samples = True
 
         self.device = get_device()
 
@@ -56,9 +63,13 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
     def _get_embedded_state(self) -> TensorType[float]:
         singleton_torch_graphs = [self._env_context.graph_to_Data(self.state)]
 
+        res = self._env_context.collate(
+            singleton_torch_graphs
+        ).to(device=self.device)
+
         return self._env_context.collate(
             singleton_torch_graphs
-        ).to(device=self.device).squeeze()
+        ).to(device=self.device)
 
     def step(self, action: int) -> Tuple[
         OBSERVATION_TYPE,
@@ -67,9 +78,9 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
         int,   # Turn (irrelevant for this env)
         dict   # Custom information dict
     ]:
-        if not isinstance(action, int):
+        if not isinstance(action, tuple):
             raise TypeError(
-                'Action must be of type int, was of type %s' % type(action)
+                'Action must be of type tuple, was of type %s' % type(action)
             )
 
         if self.done:
@@ -83,7 +94,8 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
         reward = torch.zeros(1)
         step_info_dict = {'mol_is_valid': True}
         self.done = (
-            graph_action == GraphAction.Stop or self.step_idx == self.max_len
+            graph_action.action == GraphActionType.Stop or
+            self.step_idx == self.max_len
         )
 
         # If we're done, check that the molecule is valid and compute reward
@@ -95,11 +107,11 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
 
         # If we aren't done, apply the action to the current molecule
         else:
-            gp = self._env.step(self.state, graph_action)
+            self.state = self._env.step(self.state, graph_action)
 
             # The action could've still been illegal and added more nodes than
             # allowed. If it is, end the episode and return 0 reward.
-            if len(gp.nodes) > self.max_nodes:
+            if len(self.state.nodes) > self.max_nodes:
                 step_info_dict['mol_is_valid'] = False
                 self.done = True
 
@@ -113,8 +125,20 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
 
 
     def _compute_reward(self) -> TensorType[float]:
-        flat_rewards, is_valid = self.task_obj.compute_flat_rewards([self.state])
-        return flat_rewards
+        mol = self._env_context.graph_to_mol(self.state)
+        flat_rewards, is_valid = self.task_obj.compute_flat_rewards([mol])
+        return flat_rewards.squeeze()
 
     def type_name(self) -> str:
         return SEHFragmentMoleculeEnvironment.__name__
+
+    def seed(self, seed: int = None) -> None:
+        return
+
+if __name__ == '__main__':
+    env = SEHFragmentMoleculeEnvironment()
+    import pdb; pdb.set_trace()
+    reset_stuff = env.reset()
+    step_stuff = env.step((1, 0, 0))
+    step_stuff = env.step((0, 0, 0))
+    print('hello')
