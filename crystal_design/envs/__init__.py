@@ -1,1 +1,2 @@
 from crystal_design.envs.seh_frag_molecule_env import SEHFragmentMoleculeEnvironment
+from crystal_design.envs.crystal_env import CrystalEnv
