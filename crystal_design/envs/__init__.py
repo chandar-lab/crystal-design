@@ -1,14 +1,18 @@
-from crystal_design.envs.seh_frag_molecule_env import SEHFragmentMoleculeEnvironment
+# from crystal_design.envs.seh_frag_molecule_env import SEHFragmentMoleculeEnvironment
 # from crystal_design.envs.crystal_env import CrystalEnv
 from hive.envs.base import BaseEnv, ParallelEnv
 from hive.envs.env_spec import EnvSpec
 from hive.envs.gym_env import GymEnv
 from hive.utils.registry import registry
-    
+import sys
+sys.path.append('/network/scratch/p/prashant.govindarajan/crystal_design_project/code/crystal-design/') 
+   
 try:
     from crystal_design.envs.crystal_env import CrystalEnv
+    print('Imported Successfully')
 except ImportError:
     CrystalEnv = None
+    print('Failed to Import!')
 
 registry.register_all(
     BaseEnv,

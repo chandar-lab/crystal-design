@@ -8,7 +8,7 @@ import pymatgen.io.cif as cif
 
 class CrystalEnv(BaseEnv):
     def __init__(self, n_vocab = 4, n_sites = 48, species_ind = {0:'Cu', 1:'P', 2:'N', 3:'O'},  #{0:'Cu', 1:'P', 2:'N', 3:'O'}, 
-                 atom_num_dict = {}, file_name = 'Cu3P2NO6.cif', env_name = 'CrystalEnv', seed = 42, **kwargs):
+                 atom_num_dict = {}, file_name = '/network/scratch/p/prashant.govindarajan/crystal_design_project/code/Cu3P2NO6.cif', env_name = 'CrystalEnv', seed = 42, **kwargs):
         """
         Crystal structure environment
         n_vocab : vocabulary size (number of elements in the action space)
@@ -42,7 +42,7 @@ class CrystalEnv(BaseEnv):
         # Parse CIF File
         self.mat =  cif.CifParser(self.file_name).as_dict()['Cu3P2NO6']
         # Get lattice vector
-        self.lattice = cif.CifParser('Cu3P2NO6.cif').get_lattice(self.mat)
+        self.lattice = cif.CifParser(self.file_name).get_lattice(self.mat)
         self.lat_mat = np.ravel(self.lattice.matrix)
         # Initialize state
         self.state = self.random_initial_state()
