@@ -1,0 +1,88 @@
+run_name: &run_name 'crystal-rainbow-Cu3P2NO6-2010-v3' 
+train_steps: 10000000
+test_frequency: 2500
+test_episodes: 10
+max_steps_per_episode: 100
+stack_size: &stack_size 8 ##Changed
+save_dir: 'experiment'
+saving_schedule:
+  name: 'PeriodicSchedule'
+  kwargs:
+    off_value: False
+    on_value: True
+    period: 1000000
+environment:
+  name: 'CrystalEnv' 
+  kwargs:
+    env_name: 'CrystalEnv' 
+
+agent:
+  name: 'RainbowDQNAgent'
+  kwargs:
+    representation_net:
+      name: 'MLPNetwork'  
+      kwargs:
+        hidden_units: [256, 128, 64, 32]
+    optimizer_fn:
+      name: 'Adam'
+      kwargs:
+        lr: 0.005 #Changed learning rate
+        eps: 0.00015
+    init_fn:
+      name: 'variance_scaling'
+      kwargs:
+        scale: 0.577350269
+    loss_fn:
+      name: "MSELoss"
+    n_step: &n_step 3
+    replay_buffer:
+      name: 'PrioritizedReplayBuffer'
+      kwargs:
+        capacity: 1000000
+        stack_size: *stack_size
+        gamma: &gamma 1.   #changed gamma to 1
+        n_step: *n_step
+    discount_rate: *gamma
+    #reward_clip: None
+    update_period_schedule:
+      name: 'PeriodicSchedule'
+      kwargs:
+        off_value: False
+        on_value: True
+        period: 4
+    target_net_update_schedule:
+      name: 'PeriodicSchedule'
+      kwargs:
+        off_value: False
+        on_value: True
+        period: 8000
+    epsilon_schedule:
+      name: 'LinearSchedule'
+      kwargs:
+        init_value: 1
+#           value: 0.2
+        end_value: .1  ##Changed this
+        steps: 5000000
+    test_epsilon: .001
+    min_replay_history: 10000 #Changed from 100
+    device: 'cuda'
+    log_frequency: 100
+    batch_size: 128  #Changed batch size from 32, 128
+    double: True
+    distributional: True
+    dueling: True
+    noisy: False
+    use_eps_greedy: True
+
+
+# List of logger configs used.
+loggers:
+  -
+    name: ChompLogger
+  -
+    name: WandbLogger
+    kwargs:
+      project: Hive
+      name: *run_name
+      resume: "allow"
+      start_method: "fork"

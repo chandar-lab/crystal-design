@@ -14,11 +14,28 @@ except ImportError:
     CrystalEnv = None
     print('Failed to Import!')
 
+try:
+    from crystal_design.envs.crystal_env import CrystalEnvV2
+    print('Imported Successfully')
+except ImportError:
+    CrystalEnvV2 = None
+    print('Failed to Import!')
+
+
+try:
+    from crystal_design.envs.crystal_env import CrystalEnvV3
+    print('Imported Successfully')
+except ImportError:
+    CrystalEnvV3 = None
+    print('Failed to Import!')
+
 registry.register_all(
     BaseEnv,
     {
         "GymEnv": GymEnv,
-        "CrystalEnv": CrystalEnv
+        "CrystalEnv": CrystalEnv,
+        "CrystalEnvV2": CrystalEnvV2,
+        "CrystalEnvV3": CrystalEnvV3
     },
 )
 
