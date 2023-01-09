@@ -5,6 +5,14 @@ import numpy as np
 import pymatgen.core.structure as S
 from pymatgen.analysis import energy_models as em
 import pymatgen.io.cif as cif
+import pandas as pd 
+import mendeleev
+from crystal_design.utils.data_utils import build_crystal, build_crystal_dgl_graph
+from crystal_design.utils.converters.pyg_graph_to_tensor import PyGGraphToTensorConverter
+import torch
+
+ELEMENTS = ['O', 'Tl', 'Co', 'N', 'Cr', 'Te', 'Sb', 'F', 'Ni', 'Pt', 'Ge', 'Y', 'S', 'Re', 'Rh', 'Ba', 'Bi', 'Cu', 'Mg', 'Ir', 'Al', 'Fe', 'Be', 'Ti', 'Nb', 'As', 'Sc', 'Cd', 'Sn', 'Li', 'Hf', 'Ga', 'Cs', 'Na', 'La', 'W', 'Si', 'In', 'Ca', 'Zn', 'Os', 'Hg', 'Zr', 'Sr', 'Ta', 'Mo', 'B', 'Mn', 'Au', 'Ag', 'K', 'V', 'Pb', 'Ru', 'Rb', 'Pd']
+
 
 class CrystalEnv(BaseEnv):
     def __init__(self, n_vocab = 4, n_sites = 48, species_ind = {0:'Cu', 1:'P', 2:'N', 3:'O'},  #{0:'Cu', 1:'P', 2:'N', 3:'O'}, 
@@ -852,6 +860,100 @@ class CrystalEnvCubic(BaseEnv):
     def close(self):
         pass
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+class CrystalGraphEnvPerov(BaseEnv):
+    
+    def __init__(self, file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/train.csv', env_name = 'CrystalGraphEnvPerov', 
+                config = {'max_num_nodes': 5, 'max_num_edges':25, 'node_ftr_dim': 57, 'to_numpy': False}, seed = 42, **kwargs):
+        '''
+        Crystal structure environment
+        n_vocab : vocabulary size (number of elements in the action space)
+        n_sites : number of sites in the unit cell
+        species_ind : Index for elements
+        atom_num_dict : Dictionary of atomic numbers
+        file_name : CIF File containing crystal (temporary)
+        env_name : name of environment
+        seed : random seed value
+        '''
+        self.env_name = env_name
+        self._seed = seed
+        self.data = pd.read_csv(file_name)
+        self.num_samples = self.data.shape[0]
+        self.init_vocab()
+        self.action_space = Discrete(self.n_vocab)
+        self.MAX_SIZE = config['max_num_nodes'] * config['node_ftr_dim'] * 2 + config['max_num_nodes'] * 3 + 2 * config['max_num_edges'] 
+        self.observation_space = Box(low = np.array([-np.inf] * self.MAX_SIZE), high = np.array([np.inf] * self.MAX_SIZE))
+        self._env_spec = self.create_env_spec(self.env_name, **kwargs)
+        self.converter = PyGGraphToTensorConverter(config)
+        self.state = self.random_initial_state()
+
+    def random_initial_state(self):
+        '''
+        Initialize state to default (for now, skeleton of one crystal)
+        State --> [lattice, atom positions, coordinates, tracking pointer]
+        To do : choose a random crystal skeleton from a collection
+        '''
+
+        self.index = 0
+        self.ret = 0
+
+        ind = np.random.choice(range(self.num_samples))
+        cif_string = self.data.loc[ind]['cif']
+        canonical_crystal = build_crystal(cif_string)
+        state = build_crystal_dgl_graph(canonical_crystal, self.species_ind_inv)
+        self.n_sites = state.num_nodes()
+        
+        return self.converter.encode(state)
+        
+    def init_vocab(self):
+        self.n_vocab = len(ELEMENTS)
+        self.species_ind = {i:mendeleev.element(ELEMENTS[i]).atomic_number for i in range(self.n_vocab)}
+        self.species_ind_inv = {mendeleev.element(ELEMENTS[i]).atomic_number:i for i in range(self.n_vocab)}
+
+    def create_env_spec(self, env_name, **kwargs):
+        """
+        Each family of environments have their own type of observations and actions.
+        You can add support for more families here by modifying observation_space and action_space.
+        """
+        return EnvSpec(
+            env_name=env_name,
+            observation_space=[self.observation_space],
+            action_space=[self.action_space],
+        )
+
+    def step(self, action):
+        """
+        1. self.ind stores the index
+        2. index the node and update its atom type
+        3. return updated graph
+        4. If index reached maximum value, compute fractional reward
+        self.state is a dgl graph object
+        """
+        done = False
+        state = self.converter.decode(self.state)
+        reward = 0
+        if self.index < self.n_sites:
+            state.ndata['atomic_number'][self.index][action] = 1
+            state.ndata['atomic_number'][self.index][-1] = 0
+            if action == torch.where(state.ndata['true_atomic_number'][self.index])[0]:
+                self.ret += 1
+            reward = 0
+            self.index += 1 
+        else:
+            done = True
+            reward = self.ret / self.n_sites
+        info = {}
+        self.state = self.converter.encode(state)
+        return (self.state, reward, done, None, info)
+    
+    def reset(self):
+        self.index = 0
+        self.ret = 0
+        self.state = self.random_initial_state()
+        return self.state, None
+    def seed(self, seed = 0):
+        pass
 
 
 
