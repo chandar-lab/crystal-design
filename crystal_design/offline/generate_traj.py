@@ -2,8 +2,14 @@ import torch
 import numpy as np
 import pandas as pd
 from crystal_design.utils.data_utils import build_crystal, build_crystal_dgl_graph
-from crystal_design.utils.converters.compute_prop import Crystal, OptEval
+from crystal_design.utils.compute_prop import Crystal, OptEval
 from dgl.traversal import bfs_nodes_generator
+import sys 
+import mendeleev
+from tqdm import tqdm
+
+ELEMENTS = ['O', 'Tl', 'Co', 'N', 'Cr', 'Te', 'Sb', 'F', 'Ni', 'Pt', 'Ge', 'Y', 'S', 'Re', 'Rh', 'Ba', 'Bi', 'Cu', 'Mg', 'Ir', 'Al', 'Fe', 'Be', 'Ti', 'Nb', 'As', 'Sc', 'Cd', 'Sn', 'Li', 'Hf', 'Ga', 'Cs', 'Na', 'La', 'W', 'Si', 'In', 'Ca', 'Zn', 'Os', 'Hg', 'Zr', 'Sr', 'Ta', 'Mo', 'B', 'Mn', 'Au', 'Ag', 'K', 'V', 'Pb', 'Ru', 'Rb', 'Pd']
+
 
 class OfflineTrajectories():
     def __init__(self, file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/train.csv',
@@ -12,6 +18,9 @@ class OfflineTrajectories():
         self.n_vocab = 56
         self.sample_ind = sample_ind
         np.random.seed()
+        self.init_vocab()
+        self.state = self.random_initial_state()
+        
     def random_initial_state(self):
         self.index = 0
         self.ret = 0
@@ -21,11 +30,17 @@ class OfflineTrajectories():
         state = build_crystal_dgl_graph(canonical_crystal, self.species_ind_inv)
         self.n_sites = state.num_nodes()
         self.history = []
-        self.traversal = list(bfs_nodes_generator(self.state, np.random.choice(self.n_sites)))
+        self.traversal = torch.cat(list(bfs_nodes_generator(state, np.random.choice(self.n_sites)))).numpy()
         assert len(self.traversal) == self.n_sites
+        return state
+
+    def init_vocab(self):
+        self.n_vocab = len(ELEMENTS)
+        self.species_ind = {i:mendeleev.element(ELEMENTS[i]).atomic_number for i in range(self.n_vocab)}
+        self.species_ind_inv = {mendeleev.element(ELEMENTS[i]).atomic_number:i for i in range(self.n_vocab)}
 
     def reset(self):
-        self.random_initial_state()
+        self.state = self.random_initial_state()
         
     def calc_prop(self, state):
         state_dict = {'frac_coords':state.ndata['position'], 'atom_types':state.ndata['atomic_number'], 'lengths':state.ndata['lengths'], 'angles':state.ndata['angles'], 'num_atoms':5}
@@ -33,6 +48,7 @@ class OfflineTrajectories():
         opt_cal = OptEval([crystal])
         prop = opt_cal.get_metrics()[0]
         return -prop
+
     def step(self, eps = 0):
         """
         1. self.ind stores the index
@@ -71,6 +87,11 @@ def generate_data(file_name = '/home/mila/p/prashant.govindarajan/scratch/crysta
     trajectories_list = []
     data = pd.read_csv(file_name)
     n_samples = data.shape[0]
-    for i in range(n_samples):
-        offline_setup = OfflineTrajectories(index = i)
+    for i in tqdm(range(n_samples)):
+        offline_setup = OfflineTrajectories(sample_ind = i)
         trajectories_list.append(run_episode(offline_setup))
+    torch.save(trajectories_list, '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/traj.pt')
+
+if __name__ == '__main__':
+    print('Started!')
+    generate_data()
