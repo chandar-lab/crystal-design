@@ -117,7 +117,8 @@ def build_crystal_dgl_graph(crystal, species_ind, graph_method='crystalnn'):
     g.ndata['atomic_number'][:, -1] = 1
     g.ndata['true_atomic_number'] = F.one_hot(atom_types_ind, num_classes = 57)  ## 56 vocab size + 1 blank slot 
     g.ndata['position'] = torch.tensor(coords)
-    # breakpoint()
+    # g.ndata['lengths'] = lengths
+    # g.ndata['angles'] = angles
     # g.ndata['lattice'] = np.array([lengths, angles])
 
     edge_indices, to_jimages = [], []

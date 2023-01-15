@@ -9,6 +9,7 @@ import pandas as pd
 import mendeleev
 from crystal_design.utils.data_utils import build_crystal, build_crystal_dgl_graph
 from crystal_design.utils.converters.pyg_graph_to_tensor import PyGGraphToTensorConverter
+from crystal_design.utils.converters.compute_prop import Crystal, OptEval
 import torch
 
 ELEMENTS = ['O', 'Tl', 'Co', 'N', 'Cr', 'Te', 'Sb', 'F', 'Ni', 'Pt', 'Ge', 'Y', 'S', 'Re', 'Rh', 'Ba', 'Bi', 'Cu', 'Mg', 'Ir', 'Al', 'Fe', 'Be', 'Ti', 'Nb', 'As', 'Sc', 'Cd', 'Sn', 'Li', 'Hf', 'Ga', 'Cs', 'Na', 'La', 'W', 'Si', 'In', 'Ca', 'Zn', 'Os', 'Hg', 'Zr', 'Sr', 'Ta', 'Mo', 'B', 'Mn', 'Au', 'Ag', 'K', 'V', 'Pb', 'Ru', 'Rb', 'Pd']
@@ -860,8 +861,6 @@ class CrystalEnvCubic(BaseEnv):
     def close(self):
         pass
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 class CrystalGraphEnvPerov(BaseEnv):
     
     def __init__(self, file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/train.csv', env_name = 'CrystalGraphEnvPerov', 
@@ -922,6 +921,13 @@ class CrystalGraphEnvPerov(BaseEnv):
             action_space=[self.action_space],
         )
 
+    def calc_prop(self, state):
+        state_dict = {'frac_coords':state.ndata['position'], 'atom_types':state.ndata['atomic_number'], 'lengths':state.ndata['lengths'], 'angles':state.ndata['angles'], 'num_atoms':5}
+        crystal = Crystal(state_dict)
+        opt_cal = OptEval([crystal])
+        prop = opt_cal.get_metrics()[0]
+        return -prop
+
     def step(self, action):
         """
         1. self.ind stores the index
@@ -952,6 +958,7 @@ class CrystalGraphEnvPerov(BaseEnv):
         self.ret = 0
         self.state = self.random_initial_state()
         return self.state, None
+
     def seed(self, seed = 0):
         pass
 
