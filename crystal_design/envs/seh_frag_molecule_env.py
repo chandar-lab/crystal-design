@@ -53,19 +53,21 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
         self.sanitize_samples = True
 
         self.device = get_device()
+        self.converter = PyGGraphToTensorConverter({
+            'max_num_nodes': 5,
+            'max_num_edges':25,
+            'node_ftr_dim': 57,
+            'to_numpy': False
+        })
 
     def reset(self) -> Tuple[OBSERVATION_TYPE, int]:
         self.state = self._env.new()
         self.done = False
 
-        return self._get_embedded_state(), TURN_IDX
+        return self.converter.encode(self._get_embedded_state()), TURN_IDX
 
     def _get_embedded_state(self) -> TensorType[float]:
         singleton_torch_graphs = [self._env_context.graph_to_Data(self.state)]
-
-        res = self._env_context.collate(
-            singleton_torch_graphs
-        ).to(device=self.device)
 
         return self._env_context.collate(
             singleton_torch_graphs
@@ -116,7 +118,7 @@ class SEHFragmentMoleculeEnvironment(BaseEnv):
                 self.done = True
 
         return (
-            self._get_embedded_state(),
+            self.converter.encode(self._get_embedded_state()),
             reward,
             self.done,
             TURN_IDX,
