@@ -108,15 +108,16 @@ def build_crystal_dgl_graph(crystal, species_ind, graph_method='crystalnn'):
 
     lengths, angles = np.array(lengths), np.array(angles)
 
-    g = dgl.DGLGraph()
+    g = dgl.DGLGraph().to(device = 'cuda:0')
     g.add_nodes(num_atoms)
     atom_types_ind = torch.tensor([species_ind[i] for i in atom_types])
     # atom_types_ohe = np.zeros((len(atom_types_ind), 56 + 1))
     # atom_types_ohe[np.arange(atom_types.size), atom_types_ind] = 1.
-    g.ndata['atomic_number'] = torch.zeros((num_atoms, 57))
+    g.ndata['atomic_number'] = torch.zeros((num_atoms, 57)).to(device = 'cuda:0')
     g.ndata['atomic_number'][:, -1] = 1
-    g.ndata['true_atomic_number'] = F.one_hot(atom_types_ind, num_classes = 57)  ## 56 vocab size + 1 blank slot 
-    g.ndata['position'] = torch.tensor(coords)
+    g.ndata['true_atomic_number'] = F.one_hot(atom_types_ind, num_classes = 57).to(device = 'cuda:0')  ## 56 vocab size + 1 blank slot 
+    g.ndata['position'] = torch.tensor(coords).to(device = 'cuda:0')
+    g.ndata['frac_coords'] = torch.tensor(crystal.frac_coords).to(device = 'cuda:0')
     # g.ndata['lengths'] = lengths
     # g.ndata['angles'] = angles
     # g.ndata['lattice'] = np.array([lengths, angles])
@@ -138,7 +139,55 @@ def build_crystal_dgl_graph(crystal, species_ind, graph_method='crystalnn'):
     # to_jimages = np.array(to_jimages)
     
     return g #frac_coords, atom_types, lengths, angles, edge_indices, to_jimages, num_atoms
+def build_crystal_graph(crystal, species_ind, graph_method='crystalnn'):
+    """
+    """
 
+    if graph_method == 'crystalnn':
+        crystal_graph = StructureGraph.with_local_env_strategy(
+            crystal, CrystalNN)
+    elif graph_method == 'none':
+        pass
+    else:
+        raise NotImplementedError
+
+    frac_coords = crystal.frac_coords
+    true_atom_types = crystal.atomic_numbers
+    true_atom_types = torch.tensor([species_ind[i] for i in crystal.atomic_numbers])
+    lattice_parameters = crystal.lattice.parameters
+    lengths = lattice_parameters[:3]
+    angles = lattice_parameters[3:]
+    num_atoms = true_atom_types.shape[0]
+    coords = frac_to_cart_coords(frac_coords, lengths, angles, num_atoms)
+
+    assert np.allclose(crystal.lattice.matrix,
+                       lattice_params_to_matrix(*lengths, *angles))
+
+    edge_indices, to_jimages = [], []
+    if graph_method != 'none':
+        for i, j, to_jimage in crystal_graph.graph.edges(data='to_jimage'):
+            edge_indices.append([j, i])
+            to_jimages.append(to_jimage)
+            edge_indices.append([i, j])
+            to_jimages.append(tuple(-tj for tj in to_jimage))
+
+    true_atom_types = np.array(true_atom_types)
+    lengths, angles = np.array(lengths), np.array(angles)
+    edge_indices = np.array(edge_indices)
+    to_jimages = np.array(to_jimages)
+
+    g = dgl.DGLGraph()#.to(device = 'cuda:0')
+    g.add_nodes(num_atoms)
+    edge_indices = torch.tensor(np.array(edge_indices))
+    g.ndata['atomic_number'] = torch.zeros((num_atoms, 57))#.to(device = 'cuda:0')
+    g.ndata['atomic_number'][:, -1] = 1
+    g.ndata['true_atomic_number'] = torch.tensor(true_atom_types) #.to(device = 'cuda:0')  ## 56 vocab size + 1 blank slot 
+    g.ndata['frac_coords'] = torch.tensor(frac_coords)#.to(device = 'cuda:0')
+    g.ndata['coords'] = torch.tensor(coords)
+    g.add_edges(edge_indices[:,0], edge_indices[:,1])
+    g.edata['to_jimages'] = torch.tensor(to_jimages)
+
+    return g #frac_coords, true_atom_types, lengths, angles, edge_indices, to_jimages, num_atoms
 def frac_to_cart_coords(
     frac_coords,
     lengths,
