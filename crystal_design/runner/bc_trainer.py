@@ -95,8 +95,8 @@ class BC_Trainer(object):
                 self.optimizer.step()
             avg_train_loss = torch.mean(torch.stack(step_loss_list))
             avg_train_acc = torch.mean(torch.stack(train_acc_list))
-            if i % 10 == 0:
-                torch.save(self.agent, self.save_path + '/model_' + str(i) + '.pt')
+            # if i % 10 == 0:
+                # torch.save(self.agent, self.save_path + '/model_' + str(i) + '.pt')
             
             for val_batch in (val_loader):
                 with torch.no_grad():
@@ -183,6 +183,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type = int, default = 1000)
     parser.add_argument('--graph_type', type = str, default='g')
     parser.add_argument('--agg', type = str, default = 'mean')
+    parser.add_argument('--wandb', type = bool, default = True)
     args = parser.parse_args()
     agent_name = args.agent
     if agent_name == 'GCNAgentBC':
@@ -204,23 +205,39 @@ if __name__ == '__main__':
     agg = args.agg
     epochs = args.epochs
     if graph_type == 'mg':
-        path = 'NEW_' + agg + '_' + agent_name + '_MGBC_11kx' + str(num_traj_per_crystal) + '_' + str(batch_size) + 'b' + str(learning_rate) + 'lr' + '1e-5wd' + 'adam_4layer_run' + str(exp_num) + '_' + str(epochs)
+        path = agg + '_' + agent_name + '_MGBC_11kx' + str(num_traj_per_crystal) + '_' + str(batch_size) + 'b' + str(learning_rate) + 'lr' + '1e-5wd' + 'adam_4layer' + '_' + str(epochs) + 'conf'
     else:
-        path = 'NEW_' + agg + '_' + agent_name + '_GBC_11kx' + str(num_traj_per_crystal) + '_' + str(batch_size) + 'b' + str(learning_rate) + 'lr' + '1e-5wd' + 'adam_4layer_run' + str(exp_num) + '_' + str(epochs)
-    wandb.init(name = path +'512h')
+        path = agg + '_' + agent_name + '_GBC_11kx' + str(num_traj_per_crystal) + '_' + str(batch_size) + 'b' + str(learning_rate) + 'lr' + '1e-5wd' + 'adam_4layer' + '_' + str(epochs)  + 'conf'
+
+    project = 'CRYSTAL-BC'
+    group = path + '_256h'
+    name = "Run" + str(exp_num)
+    wandb_log = args.wandb
+    if wandb_log:
+        wandb.init(config  = vars(args),
+                    project = project,
+                    group = group,
+                    name = name)
     # path = 'bc_11kx5kv3_random_agent' # + str(batch_size) + 'b' + str(learning_rate) + 'lr' + '1e-5wd' + str(exp_num) + 'adam_4layer'
+    path = path + str(exp_num)
     if graph_type == 'mg':
-        os.mkdir('../models/perov_mg_bc/' + path)
-        path = '../models/perov_mg_bc/' + path
+        try:
+            os.mkdir('../models/perov_mg_bc/' + path)
+        except:
+            os.rmdir('../models/perov_mg_bc/' + path)
+            os.mkdir('../models/perov_mg_bc/' + path)
     else:
-        os.mkdir('../models/perov_bc/' + path)
-        path = '../models/perov_bc/' + path
+        try:
+            os.mkdir('../models/perov_bc/' + path)
+        except:
+            os.rmdir('../models/perov_bc/' + path)
+            os.mkdir('../models/perov_bc/' + path)
     seeds = [1234, 3422, 2354, 6454, 3209]
     torch.manual_seed(seeds[exp_num])
     bc_trainer = BC_Trainer(agent = agent, learning_rate = learning_rate, epochs=epochs, batch_size=batch_size, val_batch_size=512,
-                load_initial_expertdata = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mg_dict.pt', #'/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_traj_dict_new_new.pt',
-                load_val_expertdata='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/val_mg_dict.pt', #'/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/val_traj_dict_new_new.pt',
-                save_path = path, graph_type = 'mg')
+                load_initial_expertdata = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_tens_dict.pt', #'/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_traj_dict_new_new.pt',
+                load_val_expertdata='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/val_tens_dict.pt', #'/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/val_traj_dict_new_new.pt',
+                save_path = path, graph_type = 'g')
     bc_trainer.run_training_loop(num_traj_per_crystal = num_traj_per_crystal)
 
     # for traj in [5]:
