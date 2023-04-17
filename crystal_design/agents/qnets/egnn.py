@@ -5,8 +5,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from hive.agents.qnets.noisy_linear import NoisyLinear
-from hive.utils.utils import ActivationFn
+#from hive.agents.qnets.noisy_linear import NoisyLinear
+#from hive.utils.utils import ActivationFn
 from dgl.nn import EGNNConv
 from dgl.nn.pytorch.conv import GraphConv
 from crystal_design.utils.data_utils import build_crystal, frac_to_cart_coords
