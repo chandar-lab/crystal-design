@@ -2,12 +2,78 @@
 #SBATCH --job-name=bc-mg
 #SBATCH --ntasks=16
 #SBATCH --gres=gpu:rtx8000:1
-#SBATCH --time=48:00:00
-#SBATCH --mem=64Gb
+#SBATCH --time=10:00:00
+#SBATCH --mem=32Gb
 #SBATCH --output=output/experiment-%A.%a.err
 #SBATCH --error=error/experiment-%A.%a.out
 
 module load anaconda/3
 conda activate csd
 wandb login 3323892d9a4991ee28c9d175976b0b8a921dcf37
-python bc_trainer.py --exp_num 0 --num_traj_per_crystal 5 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 2000 --graph_type mg --agg mean
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 1 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 1 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 1 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 1 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 1 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 2 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 2 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 2 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 2 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 2 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 3 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 3 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 3 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 3 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 3 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 4 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 4 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 4 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 4 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 4 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 5 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 5 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 5 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 5 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 5 --agent EGNNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 1 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 1 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 1 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 1 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 1 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 2 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 2 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 2 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 2 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 2 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 3 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 3 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 3 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 3 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 3 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 4 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 4 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 4 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 4 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 4 --num_traj_per_crystal 4 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+# python bc_trainer.py --exp_num 0 --num_traj_per_crystal 5 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 1 --num_traj_per_crystal 5 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 2 --num_traj_per_crystal 5 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+# python bc_trainer.py --exp_num 3 --num_traj_per_crystal 5 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+python bc_trainer.py --exp_num 4 --num_traj_per_crystal 5 --agent GCNAgentBC --batch_size 2048 --learning_rate 5e-4 --epochs 1000 --graph_type g --agg mean --wandb True
+
+# python cql_trainer.py

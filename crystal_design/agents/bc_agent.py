@@ -68,8 +68,30 @@ class EGNNAgentBC(nn.Module):
         output = self.output_layer(output)
         return output
 
+
+# class EGNNAgentBC(nn.Module):
+#     def __init__(self,in_dim_node = 118, out_dim_node = 256, in_dim_graph = 11, out_dim_graph = 8, graph_type = 'g', agg = 'mean'):
+#         super().__init__()
+#         self.egnn_net = EGNNetworkBC(in_dim_node, out_dim_node, graph_type=graph_type)
+#         self.prop_layer = Linear(in_dim_graph, out_dim_graph, device = 'cuda:0') ## Add activation
+#         if agg == 'flatten':
+#             self.output_layer = Linear((out_dim_node + 3) * 5 + out_dim_graph, in_dim_node - 1, device = 'cuda:0')
+#         elif agg == 'mean':
+#             self.output_layer = Linear((out_dim_node + 3) + out_dim_graph, in_dim_node - 1, device = 'cuda:0')
+#         self.graph_type = graph_type
+#         # self.output_layer = Linear(64 + out_dim_graph, in_dim_node - 1, device = 'cuda:0')
+
+#     def forward(self, g):
+#         h_x = self.egnn_net(g)  ## b x (5 * 131)
+#         # l_a_f = g.lengths_angles_focus
+#         # p = self.prop_layer(l_a_f)
+#         output = (h_x)
+#         # output = torch.cat([h_x, p], dim = 1)            
+#         # output = self.output_layer(output)
+#         return output
+
 class GCNAgentBC(nn.Module):
-    def __init__(self,in_dim_node = 57, out_dim_node = 128, in_dim_graph = 11, out_dim_graph = 8):
+    def __init__(self,in_dim_node = 57, out_dim_node = 128, in_dim_graph = 11, out_dim_graph = 8, graph_type = 'g'):
         super().__init__()
         self.egnn_net = GCNetwork(in_dim_node + 3, out_dim_node)
         self.prop_layer = Linear(in_dim_graph, out_dim_graph, device = 'cuda:0') ## Add activation
