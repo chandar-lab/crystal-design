@@ -9,20 +9,32 @@ from pathlib import Path
 import random
 import uuid
 from crystal_design.agents.bc_agent import EGNNAgentBC, RandomAgent, GCNAgentBC, LinearAgentBC
-from crystal_design.utils import collate_function, collate_functionV2, collate_functionV3, collate_function_offline
+from crystal_design.utils import collate_function, collate_functionV2, collate_functionV3, collate_function_offline, collate_function_offline_eval
 # import d4rl
 import gym
 import numpy as np
 import pyrallis
 import torch
 from torch.distributions import Normal, TanhTransform, TransformedDistribution
+from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
 import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 from tqdm import tqdm 
 
 TensorBatch = List[torch.Tensor]
+PAD_SEQ = -10000
+def create_sublists(A, B):
+    output = []
+    start_index = 0
 
+    for num_items in B:
+        sublist = torch.tensor(A[start_index:start_index+num_items.numpy()])
+        output.append(sublist)
+        start_index += num_items
+
+    return output
 
 @dataclass
 class TrainConfig:
@@ -30,14 +42,14 @@ class TrainConfig:
     device: str = "cuda"
     env: str = "crystal"  # OpenAI gym environment name
     seed: int = 0  # Sets Gym, PyTorch and Numpy seeds
-    eval_freq: int = int(5e3)  # How often (time steps) we evaluate
+    eval_freq: int = 10 #int(5e3)  # How often (time steps) we evaluate
     n_episodes: int = 10  # How many episodes run during evaluation
     max_timesteps: int = int(1e6)  # Max time steps to run environment
-    checkpoints_path: Optional[str] = None  # Save path
+    checkpoints_path: Optional[str] = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/cql_models/models_1'  # Save path
     load_model: str = ""  # Model load file name, "" doesn't load
     # CQL
     buffer_size: int = 2_000_000  # Replay buffer size
-    batch_size: int = 256  # Batch size for all networks
+    batch_size: int = 1024 #256  # Batch size for all networks
     discount: float = 0.99  # Discount factor
     alpha_multiplier: float = 10.0  # Multiplier for alpha in loss
     use_automatic_entropy_tuning: bool = True  # Tune entropy
@@ -61,8 +73,8 @@ class TrainConfig:
     normalize_reward: bool = False  # Normalize reward
     # Wandb logging
     project: str = "CORL-Crystal"
-    group: str = "DQN-Crystal-1000.0"
-    name: str = "DQN-noenemble-norelu-cqlweight1000.0"
+    group: str = "CQL-Crystal-band-tmp-1024"
+    name: str = "Run1"
 
     def __post_init__(self):
         self.name = f"{self.name}-{self.env}-{str(uuid.uuid4())[:8]}"
@@ -128,7 +140,7 @@ class ReplayBuffer:
         #     (buffer_size, state_dim), dtype=torch.float32, device=device
         # )
         # self._dones = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
-
+    
 
         self._device = device
 
@@ -146,10 +158,36 @@ class ReplayBuffer:
         self._states = data["observations"]
         self._actions = data["actions"]
         self._rewards = data["rewards"]
+        n_sites = [self._states[i]['atomic_number'].shape[0] for i in range(len(self._states))]
+        self._bandgaps = data["bandgaps"]
+        self._bandgaps = [num for num, count in zip(self._bandgaps, n_sites) for _ in range(count-1)]
         self._next_states = data["next_observations"]
         self._dones = data["terminals"]
         self._size += n_transitions
         self._pointer = min(self._size, n_transitions)
+        print(f"Dataset size: {n_transitions}")
+
+
+    def load_eval_dataset(self, data: Dict[str, np.ndarray], n_sites):
+        # if self._size != 0:
+        #     raise ValueError("Trying to load data into non-empty replay buffer")
+        n_transitions = len(data["observations"])
+        if n_transitions > self._buffer_size:
+            raise ValueError(
+                "Replay buffer is smaller than the dataset you are trying to load!"
+            )
+        init_indices = torch.cat((torch.tensor([0]), torch.cumsum(n_sites, dim = 0)[:-1]))
+        self._states_eval = data["observations"]
+        self._actions_eval = data["actions"]
+        self._rewards_eval = data["rewards"]
+        self._next_states_eval = data["next_observations"]
+        self._dones_eval = data["terminals"]
+        self.eval_dataset = [[self._states_eval[i],self._actions_eval[i], self._next_states_eval[i],  self._rewards_eval[i], self._dones_eval[i]] for i in init_indices]
+        self._focus_all = [torch.where(self._next_states_eval[i]['atomic_number'][:,-1])[0] for i in range(n_transitions)]   ### ARGMAX MAY NOT BE CORRECT HERE
+        self._focus_all = [self._focus_all[i] if self._focus_all[i].size()[0] > 0 else torch.tensor(PAD_SEQ) for i in range(len(self._focus_all))] 
+        self._focus_all = create_sublists(self._focus_all, n_sites)
+        self._focus_all = pad_sequence(self._focus_all, batch_first = True, padding_value = PAD_SEQ)
+        self._pointer_eval = n_transitions
         print(f"Dataset size: {n_transitions}")
 
     # Loads data in d4rl format, i.e. from Dict[str, np.array].
@@ -176,10 +214,13 @@ class ReplayBuffer:
         states = [self._states[i] for i in indices]
         actions = [self._actions[i] for i in indices]
         rewards = [-self._rewards[i] for i in indices]
+        # n_sites = [self._states[i].shape[0] for i in indices]
+        bandgaps = [self._bandgaps[i] for i in indices]
         next_states = [self._next_states[i] for i in indices]
         dones = [self._dones[i] for i in indices]
-        states, actions, next_states, rewards, dones = collate_function_offline(states, actions, rewards, next_states, dones)
-        return states, actions, next_states, rewards, dones
+        states, actions, next_states, rewards, dones = collate_function_offline(states, actions, rewards, bandgaps, next_states, dones)
+        return states, actions, next_states, rewards, dones #, indices, n_sites
+
 
     def add_transition(self):
         # Use this method to add new data into the replay buffer during fine-tuning.
@@ -573,12 +614,17 @@ class ContinuousCQL:
     def _q_loss(
         self, observations, actions, next_observations, rewards, dones, alpha, log_dict
     ):
+    
         batch_size = observations.n_atoms.shape[0]
         q1_all = self.critic_1(observations)
         q2_all = self.critic_2(observations)
-
+        pred_actions = torch.argmax(q1_all, dim = 1)
+        
         q1_predicted = q1_all[range(batch_size), actions]
         q2_predicted = q2_all[range(batch_size), actions]
+        actions = torch.stack(actions).cuda()
+        assert pred_actions.shape == actions.shape
+        acc = torch.sum(pred_actions == actions).item() / batch_size
         self.cql_max_target_backup = False
         if self.cql_max_target_backup:
             new_next_actions, next_log_pi = self.actor(
@@ -606,9 +652,13 @@ class ContinuousCQL:
 
         # if self.backup_entropy:
             # target_q_values = target_q_values - alpha * next_log_pi
+        # target_q_values = torch.ones_like(q1_predicted).cuda() * 10000
         target_q_values = target_q_values.unsqueeze(-1)
+        ### ADDED FOR CONSTANT REWARD ###
+        # rewards[torch.where(rewards)] = 10000.
         td_target = rewards.unsqueeze(-1).to(device = 'cuda:0') + (1.0 - dones.to(dtype = torch.float32, device='cuda:0').unsqueeze(-1)) * self.discount * target_q_values
         td_target = td_target.squeeze(-1)
+        # td_target = torch.ones_like(q1_predicted).cuda() * 10000
         qf1_loss = F.mse_loss(q1_predicted, td_target.detach())
         qf2_loss = F.mse_loss(q2_predicted, td_target.detach())
 
@@ -733,9 +783,9 @@ class ContinuousCQL:
                 average_qf1=q1_predicted.mean().item(),
                 # average_qf2=q2_predicted.mean().item(),
                 average_target_q=target_q_values.mean().item(),
+                accuracy = acc,
             )
         )
-
         log_dict.update(
             dict(
                 # cql_std_q1=cql_std_q1.mean().item(),
@@ -755,7 +805,40 @@ class ContinuousCQL:
             )
         )
         alpha_prime = alpha_prime_loss = 0.
-        return qf_loss, alpha_prime, alpha_prime_loss
+        return qf_loss, alpha_prime, alpha_prime_loss, pred_actions
+
+    def eval(self, observations, batch_focus, n_sites, step):
+        # (
+        #     observations,
+        #     actions,
+        #     next_observations,
+        #     rewards,
+        #     dones,
+        # ) = batch
+        observations = observations.to(device = 'cuda:0')
+        observations.lengths_angles_focus = observations.lengths_angles_focus.to(device = 'cuda:0')
+        # next_observations = next_observations.to(device = 'cuda:0')
+        # next_observations.lengths_angles_focus = next_observations.lengths_angles_focus.to(device = 'cuda:0')
+        q1_all = self.critic_1(observations)
+        pred_actions = torch.argmax(q1_all, dim = 1) ### Nodes x 1 
+        atomic_number = observations.ndata['atomic_number']   ### Nodes X (D + 2)
+        curr_focus = atomic_number[:,-1]
+        index_curr_focus = torch.where(curr_focus)[0]
+        n = index_curr_focus.shape[0]
+        t = pred_actions.shape[0]
+        atomic_number[:, -2][index_curr_focus] = 0.  ## Correct
+        atomic_number[index_curr_focus, pred_actions[t-n:]] = 1. ## Could lead to index mismatch issues
+        next_focus = batch_focus[:,step]
+        cum_sum_nsites = torch.cat((torch.tensor([0]), torch.cumsum(n_sites, dim = 0)[:-1]))
+        next_focus = next_focus + cum_sum_nsites
+        next_focus = next_focus[torch.where(next_focus >= 0)[0]]
+        current_focus = torch.where(atomic_number[:, -1])[0] 
+        atomic_number[:, -1][current_focus] = 0.
+        atomic_number[:, -1][next_focus] = 1.
+        observations.ndata['atomic_number'] = atomic_number
+        # batch[0] = observations
+
+        return observations, pred_actions 
 
     def train(self, batch: TensorBatch) -> Dict[str, float]:
         (
@@ -763,6 +846,7 @@ class ContinuousCQL:
             actions,
             next_observations,
             rewards,
+            bandgaps,
             dones,
         ) = batch
         self.total_it += 1
@@ -791,10 +875,10 @@ class ContinuousCQL:
         next_observations.lengths_angles_focus = next_observations.lengths_angles_focus.to(device = 'cuda:0')
         alpha = torch.tensor(1.)
         """ Q function loss """
-        qf_loss, alpha_prime, alpha_prime_loss = self._q_loss(
-            observations, actions, next_observations, rewards, dones, alpha, log_dict
-        )
-
+        qf_loss, alpha_prime, alpha_prime_loss, pred_actions = self._q_loss(
+                observations, actions, next_observations, rewards, bandgaps, dones, alpha, log_dict
+            )  ### Return a_max of q1_predicted
+        
         ## Modify qf_loss and policy_loss, and also EGNNBC to include necessary methods and return values
 
         # if self.use_automatic_entropy_tuning:
@@ -808,9 +892,10 @@ class ContinuousCQL:
 
         self.critic_1_optimizer.zero_grad()
         self.critic_2_optimizer.zero_grad()
-        qf_loss.backward(retain_graph=True)
+        qf_loss.backward(retain_graph=True) 
+        torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), max_norm=5)
         self.critic_1_optimizer.step()
-        self.critic_2_optimizer.step()
+        # self.critic_2_optimizer.step()
 
         if self.total_it % self.target_update_period == 0:
             self.update_target_network(self.soft_target_update_rate)
@@ -861,6 +946,11 @@ class ContinuousCQL:
         )
         self.total_it = state_dict["total_it"]
 
+def get_nsites(data):
+    terminals = torch.tensor(data['terminals']).to(dtype = torch.int32)
+    cum_sum_terminals = torch.where(terminals)[0]
+    n_sites = torch.diff(cum_sum_terminals, prepend = torch.tensor([-1]))
+    return n_sites
 
 @pyrallis.wrap()
 def train(config: TrainConfig):
@@ -869,8 +959,8 @@ def train(config: TrainConfig):
     # state_dim = 118 #env.observation_space.shape[0]
     # action_dim = 1 #env.action_space.shape[0]
 
-    dataset = torch.load('/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg.pt')
-
+    dataset = torch.load('/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_3kbands.pt')
+    n_sites = get_nsites(dataset)
     # if config.normalize_reward:
     #     modify_reward(dataset, config.env)
 
@@ -891,8 +981,10 @@ def train(config: TrainConfig):
         config.device,
     )
     replay_buffer.load_dataset(dataset) # Loading dataset into buffer
+    # replay_buffer.load_eval_dataset(dataset, n_sites)
+    # loader_focus = DataLoader(replay_buffer._focus_all, batch_size = 1024, num_workers = 0, shuffle = False)
+    # eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 256, collate_fn = collate_function_offline_eval, shuffle = False)
     # max_action = float(env.action_space.high[0]) # Check
-
     if config.checkpoints_path is not None:
         print(f"Checkpoints path: {config.checkpoints_path}")
         os.makedirs(config.checkpoints_path, exist_ok=True)
@@ -978,7 +1070,12 @@ def train(config: TrainConfig):
         wandb.log(log_dict, step=trainer.total_it)
         # Evaluate episode
         # if (t + 1) % config.eval_freq == 0:    ## EVALUATE on real env with trained actor
-        #     print(f"Time steps: {t + 1}")
+            # true_actions_list = replay_buffer._actions_eval
+            # pred_actions_list = [] 
+            # print(f"Time steps: {t + 1}")
+            # for batch, batch_focus in zip(eval_dataloader, loader_focus):
+            #     pred_actions, done = trainer.eval(batch, batch_focus, n_sites)
+            #     pred_actions_list.append(pred_actions)
             # eval_scores = eval_actor(
             #     env,
             #     actor,
@@ -995,7 +1092,7 @@ def train(config: TrainConfig):
             #     f"{eval_score:.3f} , D4RL score: {normalized_eval_score:.3f}"
             # )
             # print("---------------------------------------")
-        if config.checkpoints_path:
+        if t % 50 == 0 and config.checkpoints_path:
             torch.save(
                 trainer.state_dict(),
                 os.path.join(config.checkpoints_path, f"checkpoint_{t}.pt"),
@@ -1005,6 +1102,75 @@ def train(config: TrainConfig):
             #     step=trainer.total_it,
             # )
 
-
+@torch.no_grad()
+@pyrallis.wrap()
+def cql_eval(config: TrainConfig, model_path, data_path):
+    replay_buffer = ReplayBuffer(   #Initializing replay buffer
+        config.buffer_size,
+        config.device,
+    )
+    state_dict = torch.load(model_path)
+    model = EGNNAgentBC(graph_type = 'mg')
+    model.load_state_dict(state_dict['critic1'])
+    kwargs = {
+        "critic_1": model,
+        "critic_2": EGNNAgentBC(graph_type = 'mg'),
+        "critic_1_optimizer": torch.optim.Adam(list(model.parameters()), config.qf_lr),
+        "critic_2_optimizer": torch.optim.Adam(list(model.parameters()), config.qf_lr),
+        "actor": EGNNAgentBC(graph_type = 'mg'),
+        "actor_optimizer": torch.optim.Adam(list(model.parameters()), config.qf_lr),
+        "discount": config.discount,
+        "soft_target_update_rate": config.soft_target_update_rate,
+        "device": config.device,
+        # CQL
+        # "target_entropy": -np.prod(env.action_space.shape).item(),
+        "target_entropy": -1,
+        "alpha_multiplier": config.alpha_multiplier,
+        "use_automatic_entropy_tuning": config.use_automatic_entropy_tuning,
+        "backup_entropy": config.backup_entropy,
+        "policy_lr": config.policy_lr,
+        "qf_lr": config.qf_lr,
+        "bc_steps": config.bc_steps,
+        "target_update_period": config.target_update_period,
+        "cql_n_actions": config.cql_n_actions,
+        "cql_importance_sample": config.cql_importance_sample,
+        "cql_lagrange": config.cql_lagrange,
+        "cql_target_action_gap": config.cql_target_action_gap,
+        "cql_temp": config.cql_temp,
+        "cql_min_q_weight": config.cql_min_q_weight,
+        "cql_max_target_backup": config.cql_max_target_backup,
+        "cql_clip_diff_min": config.cql_clip_diff_min,
+        "cql_clip_diff_max": config.cql_clip_diff_max,
+    }
+    trainer = ContinuousCQL(**kwargs)
+    data = torch.load(data_path)
+    n_sites = get_nsites(data)
+    replay_buffer.load_eval_dataset(data, n_sites)
+    loader_n = DataLoader(n_sites, batch_size = 13, num_workers = 0, shuffle = False)
+    loader_focus = DataLoader(replay_buffer._focus_all, batch_size = 13, num_workers = 0, shuffle = False)
+    eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 13, collate_fn = collate_function_offline_eval, shuffle = False)
+    recons_acc_list = []
+    pred_accuracy_list = []
+    for batch, batch_focus, n_sites_batch in tqdm(zip(eval_dataloader, loader_focus, loader_n)):
+        step = 0
+        MAX_STEPS = batch_focus.shape[1]
+        observations = batch[0]
+        for step in range(MAX_STEPS):
+            observations, pred_actions = trainer.eval(observations, batch_focus, n_sites_batch, step)
+            breakpoint()
+        pred_types = torch.argmax(observations.ndata['atomic_number'], dim = 1)
+        true_types = observations.ndata['true_atomic_number']
+        matches = (pred_types == true_types)
+        pred_acc = torch.mean(matches.float())
+        matches = torch.split(matches, n_sites_batch.tolist())
+        pred_accuracy_list.append(pred_acc)
+        matches = torch.tensor([torch.prod(mat) for mat in matches])
+        recons_acc = torch.mean(matches.float())
+        recons_acc_list.append(recons_acc)
+    print('Final recons accuracy = ', torch.mean(torch.tensor(recons_acc_list)))
+    print('Final pred accuracy = ', torch.mean(torch.tensor(pred_accuracy_list)))
 if __name__ == "__main__":
     train()
+    # model_path = '../cql_models/models_1/Run1-crystal-4b5218b1/checkpoint_600000.pt'
+    # data_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_20.pt'
+    # cql_eval(model_path=model_path, data_path=data_path)
