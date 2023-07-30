@@ -10,6 +10,8 @@ import random
 import uuid
 from crystal_design.agents.bc_agent import EGNNAgentBC, RandomAgent, GCNAgentBC, LinearAgentBC
 from crystal_design.utils import collate_function, collate_functionV2, collate_functionV3, collate_function_offline, collate_function_offline_eval
+from torcheval.metrics import MulticlassPrecision, MulticlassRecall
+from sklearn.metrics import recall_score, precision_score
 # import d4rl
 import gym
 import numpy as np
@@ -22,8 +24,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 from tqdm import tqdm 
+from p_tqdm import p_umap
 
 TensorBatch = List[torch.Tensor]
+NUM_CLASSES = 88
+SI_BG  = 4.0
 PAD_SEQ = -10000
 def create_sublists(A, B):
     output = []
@@ -44,7 +49,7 @@ class TrainConfig:
     seed: int = 0  # Sets Gym, PyTorch and Numpy seeds
     eval_freq: int = 10 #int(5e3)  # How often (time steps) we evaluate
     n_episodes: int = 10  # How many episodes run during evaluation
-    max_timesteps: int = int(1e6)  # Max time steps to run environment
+    max_timesteps: int = int(1e7)  # Max time steps to run environment
     checkpoints_path: Optional[str] = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/cql_models/models_1'  # Save path
     load_model: str = ""  # Model load file name, "" doesn't load
     # CQL
@@ -72,8 +77,9 @@ class TrainConfig:
     normalize: bool = True  # Normalize states
     normalize_reward: bool = False  # Normalize reward
     # Wandb logging
-    project: str = "CORL-Crystal"
-    group: str = "CQL-Crystal-band-tmp-1024"
+    project: str = "CORL-Crystal-NEW"
+    group: str = "1024-2layer-beta3-alpha5-bg4.nq2"
+    # group: str = "tmp"
     name: str = "Run1"
 
     def __post_init__(self):
@@ -151,19 +157,19 @@ class ReplayBuffer:
         if self._size != 0:
             raise ValueError("Trying to load data into non-empty replay buffer")
         n_transitions = len(data["observations"])
-        if n_transitions > self._buffer_size:
-            raise ValueError(
-                "Replay buffer is smaller than the dataset you are trying to load!"
-            )
+        # if n_transitions > self._buffer_size:
+        #     raise ValueError(
+        #         "Replay buffer is smaller than the dataset you are trying to load!"
+        #     )
         self._states = data["observations"]
         self._actions = data["actions"]
         self._rewards = data["rewards"]
         n_sites = [self._states[i]['atomic_number'].shape[0] for i in range(len(self._states))]
         self._bandgaps = data["bandgaps"]
-        self._bandgaps = [num for num, count in zip(self._bandgaps, n_sites) for _ in range(count-1)]
+        self._bandgaps = [num for num, count in zip(self._bandgaps, n_sites) for _ in range(count)]
         self._next_states = data["next_observations"]
         self._dones = data["terminals"]
-        self._size += n_transitions
+        self._size = n_transitions
         self._pointer = min(self._size, n_transitions)
         print(f"Dataset size: {n_transitions}")
 
@@ -180,6 +186,7 @@ class ReplayBuffer:
         self._states_eval = data["observations"]
         self._actions_eval = data["actions"]
         self._rewards_eval = data["rewards"]
+        self._bandgaps = data["bandgaps"]
         self._next_states_eval = data["next_observations"]
         self._dones_eval = data["terminals"]
         self.eval_dataset = [[self._states_eval[i],self._actions_eval[i], self._next_states_eval[i],  self._rewards_eval[i], self._dones_eval[i]] for i in init_indices]
@@ -210,16 +217,17 @@ class ReplayBuffer:
         print(f"Dataset size: {n_transitions}")
 
     def sample(self, batch_size: int) -> TensorBatch:
-        indices = np.random.randint(0, min(self._size, self._pointer), size=batch_size)
+        # breakpoint()
+        indices = np.random.randint(0, self._pointer, size=batch_size)
         states = [self._states[i] for i in indices]
         actions = [self._actions[i] for i in indices]
-        rewards = [-self._rewards[i] for i in indices]
+        rewards = [torch.log10(-torch.tensor(self._rewards[i])) if -self._rewards[i] > 0. else self._rewards[i] for i in indices] ###
         # n_sites = [self._states[i].shape[0] for i in indices]
         bandgaps = [self._bandgaps[i] for i in indices]
         next_states = [self._next_states[i] for i in indices]
         dones = [self._dones[i] for i in indices]
-        states, actions, next_states, rewards, dones = collate_function_offline(states, actions, rewards, bandgaps, next_states, dones)
-        return states, actions, next_states, rewards, dones #, indices, n_sites
+        states, actions, next_states, rewards, bandgaps, dones = collate_function_offline(states, actions, rewards, bandgaps, next_states, dones)
+        return states, actions, next_states, rewards, bandgaps, dones #, indices, n_sites
 
 
     def add_transition(self):
@@ -612,7 +620,7 @@ class ContinuousCQL:
         return policy_loss
 
     def _q_loss(
-        self, observations, actions, next_observations, rewards, dones, alpha, log_dict
+        self, observations, actions, next_observations, rewards, bandgaps, dones, alpha, log_dict
     ):
     
         batch_size = observations.n_atoms.shape[0]
@@ -624,6 +632,14 @@ class ContinuousCQL:
         q2_predicted = q2_all[range(batch_size), actions]
         actions = torch.stack(actions).cuda()
         assert pred_actions.shape == actions.shape
+
+        # prec = precision_score(actions.cpu(), pred_actions.cpu(), labels = range(NUM_CLASSES), average = 'macro', zero_division = 0.0)
+        # rec = recall_score(actions.cpu(), pred_actions.cpu(), labels = range(NUM_CLASSES), average = 'macro', zero_division = 0.0)
+        prec_calc = MulticlassPrecision(num_classes = NUM_CLASSES, average = 'macro')
+        prec = prec_calc.update(pred_actions.cpu(), actions.cpu()).compute()
+        # rec_calc = MulticlassRecall(num_classes = NUM_CLASSES, average = None)
+        # rec = rec_calc.update(pred_actions.cpu(), actions.cpu()).compute().mean()
+
         acc = torch.sum(pred_actions == actions).item() / batch_size
         self.cql_max_target_backup = False
         if self.cql_max_target_backup:
@@ -642,12 +658,12 @@ class ContinuousCQL:
             ).squeeze(-1)
         else:
             # new_next_actions, next_log_pi = self.actor(next_observations)
-            # target_q_values = torch.min(
-            #     torch.max(self.target_critic_1(next_observations), dim = 1)[0],
-            #     # torch.max(self.target_critic_2(next_observations), dim = 1)[0],
-            # )   ## Add indexing here by indexing it with actions
-            with torch.no_grad():
-                target_q_values = torch.max(self.target_critic_1(next_observations), dim = 1)[0]
+            target_q_values = torch.min(
+                torch.max(self.target_critic_1(next_observations), dim = 1)[0],
+                torch.max(self.target_critic_2(next_observations), dim = 1)[0],
+            )   ## Add indexing here by indexing it with actions
+            # with torch.no_grad():
+            #     target_q_values = torch.max(self.target_critic_1(next_observations), dim = 1)[0]
                 ## Stop gradients here
 
         # if self.backup_entropy:
@@ -656,6 +672,16 @@ class ContinuousCQL:
         target_q_values = target_q_values.unsqueeze(-1)
         ### ADDED FOR CONSTANT REWARD ###
         # rewards[torch.where(rewards)] = 10000.
+        zero_rew_ind = torch.where(rewards == 0.)[0]
+        # nzero_rew_ind = torch.where(rewards)[0]       
+        bandgaps[zero_rew_ind] = 0.0
+        target = torch.ones_like(bandgaps) * SI_BG
+        target[zero_rew_ind] = 0.0
+        # target.to(dtype = torch.long)
+        try:
+            rewards += 5*torch.exp(-(bandgaps - target)**2 / 3.)
+        except:
+            pass
         td_target = rewards.unsqueeze(-1).to(device = 'cuda:0') + (1.0 - dones.to(dtype = torch.float32, device='cuda:0').unsqueeze(-1)) * self.discount * target_q_values
         td_target = td_target.squeeze(-1)
         # td_target = torch.ones_like(q1_predicted).cuda() * 10000
@@ -756,11 +782,11 @@ class ContinuousCQL:
                 * self.cql_min_q_weight  # noqa
                 * (cql_qf1_diff - self.cql_target_action_gap)  # noqa
             )
-            cql_min_qf2_loss = (
-                alpha_prime  # noqa
-                * self.cql_min_q_weight  # noqa
-                * (cql_qf2_diff - self.cql_target_action_gap)  # noqa
-            )
+            # cql_min_qf2_loss = (
+            #     alpha_prime  # noqa
+            #     * self.cql_min_q_weight  # noqa
+            #     * (cql_qf2_diff - self.cql_target_action_gap)  # noqa
+            # )
 
             self.alpha_prime_optimizer.zero_grad()
             alpha_prime_loss = (-cql_min_qf1_loss - cql_min_qf2_loss) * 0.5
@@ -772,18 +798,19 @@ class ContinuousCQL:
             # alpha_prime_loss = observations.new_tensor(0.0)
             # alpha_prime = observations.new_tensor(0.0)
 
-        # qf_loss = qf1_loss + qf2_loss + cql_min_qf1_loss + cql_min_qf2_loss
-        qf_loss = qf1_loss * 0.5 + cql_min_qf1_loss 
-
+        qf_loss = qf1_loss + qf2_loss + cql_min_qf1_loss + cql_min_qf2_loss
+        # qf_loss = qf1_loss * 0.5 + cql_min_qf1_loss 
         log_dict.update(
             dict(
                 qf1_loss=qf1_loss.item(),
-                # qf2_loss=qf2_loss.item(),
+                qf2_loss=qf2_loss.item(),
                 alpha=alpha.item(),
                 average_qf1=q1_predicted.mean().item(),
-                # average_qf2=q2_predicted.mean().item(),
+                average_qf2=q2_predicted.mean().item(),
                 average_target_q=target_q_values.mean().item(),
                 accuracy = acc,
+                precision = prec,
+                # recall = rec,
             )
         )
         log_dict.update(
@@ -793,9 +820,9 @@ class ContinuousCQL:
                 # cql_q1_rand=cql_q1_rand.mean().item(),
                 # cql_q2_rand=cql_q2_rand.mean().item(),
                 cql_min_qf1_loss=cql_min_qf1_loss.mean().item(),
-                # cql_min_qf2_loss=cql_min_qf2_loss.mean().item(),
+                cql_min_qf2_loss=cql_min_qf2_loss.mean().item(),
                 cql_qf1_diff=cql_qf1_diff.mean().item(),
-                # cql_qf2_diff=cql_qf2_diff.mean().item(),
+                cql_qf2_diff=cql_qf2_diff.mean().item(),
                 # cql_q1_current_actions=cql_q1_current_actions.mean().item(),
                 # cql_q2_current_actions=cql_q2_current_actions.mean().item(),
                 # cql_q1_next_actions=cql_q1_next_actions.mean().item(),
@@ -838,7 +865,7 @@ class ContinuousCQL:
         observations.ndata['atomic_number'] = atomic_number
         # batch[0] = observations
 
-        return observations, pred_actions 
+        return observations, pred_actions, index_curr_focus 
 
     def train(self, batch: TensorBatch) -> Dict[str, float]:
         (
@@ -873,6 +900,7 @@ class ContinuousCQL:
         observations.lengths_angles_focus = observations.lengths_angles_focus.to(device = 'cuda:0')
         next_observations = next_observations.to(device = 'cuda:0')
         next_observations.lengths_angles_focus = next_observations.lengths_angles_focus.to(device = 'cuda:0')
+        # actions = actions.to(device = 'cuda:0')
         alpha = torch.tensor(1.)
         """ Q function loss """
         qf_loss, alpha_prime, alpha_prime_loss, pred_actions = self._q_loss(
@@ -889,13 +917,13 @@ class ContinuousCQL:
         # self.actor_optimizer.zero_grad()
         # policy_loss.backward()
         # self.actor_optimizer.step()
-
         self.critic_1_optimizer.zero_grad()
         self.critic_2_optimizer.zero_grad()
-        qf_loss.backward(retain_graph=True) 
-        torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), max_norm=5)
+        # qf_loss.backward(retain_graph=True)
+        qf_loss.backward() 
+        torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), max_norm=5., error_if_nonfinite = True)
         self.critic_1_optimizer.step()
-        # self.critic_2_optimizer.step()
+        self.critic_2_optimizer.step()
 
         if self.total_it % self.target_update_period == 0:
             self.update_target_network(self.soft_target_update_rate)
@@ -958,8 +986,8 @@ def train(config: TrainConfig):
     env = None
     # state_dim = 118 #env.observation_space.shape[0]
     # action_dim = 1 #env.action_space.shape[0]
-
-    dataset = torch.load('/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_3kbands.pt')
+    # dataset=torch.load('/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/archive/train_mp_mg_4kbands_5crys.pt')
+    dataset = torch.load('/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_24k.pt')
     n_sites = get_nsites(dataset)
     # if config.normalize_reward:
     #     modify_reward(dataset, config.env)
@@ -1061,7 +1089,7 @@ def train(config: TrainConfig):
         actor = trainer.actor
 
     wandb_init(asdict(config))
-
+    # torch.autograd.set_detect_anomaly(True)
     evaluations = []
     for t in tqdm(range(int(config.max_timesteps))):
         batch = replay_buffer.sample(config.batch_size)  ## SAMPLE FROM BUFFER
@@ -1092,7 +1120,7 @@ def train(config: TrainConfig):
             #     f"{eval_score:.3f} , D4RL score: {normalized_eval_score:.3f}"
             # )
             # print("---------------------------------------")
-        if t % 50 == 0 and config.checkpoints_path:
+        if t % 50000 == 0 and config.checkpoints_path:
             torch.save(
                 trainer.state_dict(),
                 os.path.join(config.checkpoints_path, f"checkpoint_{t}.pt"),
@@ -1104,7 +1132,7 @@ def train(config: TrainConfig):
 
 @torch.no_grad()
 @pyrallis.wrap()
-def cql_eval(config: TrainConfig, model_path, data_path):
+def cql_eval(config: TrainConfig, model_path, data_path, save_path):
     replay_buffer = ReplayBuffer(   #Initializing replay buffer
         config.buffer_size,
         config.device,
@@ -1145,19 +1173,22 @@ def cql_eval(config: TrainConfig, model_path, data_path):
     trainer = ContinuousCQL(**kwargs)
     data = torch.load(data_path)
     n_sites = get_nsites(data)
-    replay_buffer.load_eval_dataset(data, n_sites)
-    loader_n = DataLoader(n_sites, batch_size = 13, num_workers = 0, shuffle = False)
-    loader_focus = DataLoader(replay_buffer._focus_all, batch_size = 13, num_workers = 0, shuffle = False)
-    eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 13, collate_fn = collate_function_offline_eval, shuffle = False)
+    # replay_buffer.load_eval_dataset(data, n_sites)
+    loader_n = DataLoader(n_sites, batch_size = 1, num_workers = 0, shuffle = False)
+    loader_focus = DataLoader(replay_buffer._focus_all, batch_size = 1, num_workers = 0, shuffle = False)
+    eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 1, collate_fn = collate_function_offline_eval, shuffle = False)
+    bg_loader = DataLoader(replay_buffer._bandgaps, batch_size = 1, num_workers = 0, shuffle = False)
     recons_acc_list = []
     pred_accuracy_list = []
+    obs_list = []
     for batch, batch_focus, n_sites_batch in tqdm(zip(eval_dataloader, loader_focus, loader_n)):
         step = 0
         MAX_STEPS = batch_focus.shape[1]
         observations = batch[0]
         for step in range(MAX_STEPS):
-            observations, pred_actions = trainer.eval(observations, batch_focus, n_sites_batch, step)
-            breakpoint()
+            observations, pred_actions, prev_focus = trainer.eval(observations, batch_focus, n_sites_batch, step)
+            true_actions = observations.ndata['true_atomic_number'][prev_focus]
+            # print(torch.sum(true_actions == pred_actions))
         pred_types = torch.argmax(observations.ndata['atomic_number'], dim = 1)
         true_types = observations.ndata['true_atomic_number']
         matches = (pred_types == true_types)
@@ -1167,10 +1198,14 @@ def cql_eval(config: TrainConfig, model_path, data_path):
         matches = torch.tensor([torch.prod(mat) for mat in matches])
         recons_acc = torch.mean(matches.float())
         recons_acc_list.append(recons_acc)
+        obs_list.append(observations)
     print('Final recons accuracy = ', torch.mean(torch.tensor(recons_acc_list)))
     print('Final pred accuracy = ', torch.mean(torch.tensor(pred_accuracy_list)))
+    torch.save(obs_list, save_path)
 if __name__ == "__main__":
+    print('Starting')
     train()
-    # model_path = '../cql_models/models_1/Run1-crystal-4b5218b1/checkpoint_600000.pt'
-    # data_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_20.pt'
-    # cql_eval(model_path=model_path, data_path=data_path)
+    # model_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/cql_models/models_1/Run1-crystal-6772079e/checkpoint_950000.pt'
+    # data_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_3kbandsval.pt'
+    # save_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/runner/val_generated/val_950k.pt'
+    # cql_eval(model_path=model_path, data_path=data_path, save_path = save_path)
