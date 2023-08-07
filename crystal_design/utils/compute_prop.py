@@ -19,8 +19,8 @@ import sys
 # sys.path.append('/home/mila/p/prashant.govindarajan/scratch/COMP760-Project/cdvae')
 sys.path.append('/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/cdvae')
 
-from scripts.eval_utils import (smact_validity, structure_validity, CompScaler, get_fp_pdist,
-                                    load_config, load_data, get_crystals_list, prop_model_eval, compute_cov)
+# from scripts.eval_utils import (smact_validity, structure_validity, CompScaler, get_fp_pdist,
+#                                     load_config, load_data, get_crystals_list, prop_model_eval, compute_cov)
 
 CrystalNNFP = CrystalNNFingerprint.from_preset("ops")
 CompFP = ElementProperty.from_preset('magpie')

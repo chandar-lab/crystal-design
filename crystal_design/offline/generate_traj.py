@@ -7,6 +7,7 @@ from cdvae.common.data_utils import cart_to_frac_coords
 from dgl.traversal import bfs_nodes_generator
 import sys 
 import mendeleev
+import pickle
 from tqdm import tqdm
 import time
 from copy import deepcopy
@@ -17,22 +18,35 @@ import pdb
 import warnings
 warnings.simplefilter('ignore')
 
-ELEMENTS = ['O', 'Tl', 'Co', 'N', 'Cr', 'Te', 'Sb', 'F', 'Ni', 'Pt', 'Ge', 'Y', 'S', 'Re', 'Rh', 'Ba', 'Bi', 'Cu', 'Mg', 'Ir', 'Al', 'Fe', 'Be', 'Ti', 'Nb', 'As', 'Sc', 'Cd', 'Sn', 'Li', 'Hf', 'Ga', 'Cs', 'Na', 'La', 'W', 'Si', 'In', 'Ca', 'Zn', 'Os', 'Hg', 'Zr', 'Sr', 'Ta', 'Mo', 'B', 'Mn', 'Au', 'Ag', 'K', 'V', 'Pb', 'Ru', 'Rb', 'Pd']
-ELEMENTS = ['H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 
-                  'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 
-                  'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 
-                  'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y', 'Zr', 
-                  'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 
-                  'Sb', 'Te', 'I', 'Xe', 'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 
-                  'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 
-                  'Lu', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 
-                  'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn', 'Fr', 'Ra', 'Ac', 'Th', 
-                  'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 
-                  'Md', 'No', 'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 
-                  'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']
+# ELEMENTS = ['O', 'Tl', 'Co', 'N', 'Cr', 'Te', 'Sb', 'F', 'Ni', 'Pt', 'Ge', 'Y', 'S', 'Re', 'Rh', 'Ba', 'Bi', 'Cu', 'Mg', 'Ir', 'Al', 'Fe', 'Be', 'Ti', 'Nb', 'As', 'Sc', 'Cd', 'Sn', 'Li', 'Hf', 'Ga', 'Cs', 'Na', 'La', 'W', 'Si', 'In', 'Ca', 'Zn', 'Os', 'Hg', 'Zr', 'Sr', 'Ta', 'Mo', 'B', 'Mn', 'Au', 'Ag', 'K', 'V', 'Pb', 'Ru', 'Rb', 'Pd']
+# ELEMENTS = ['H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 
+#                   'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 
+#                   'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 
+#                   'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y', 'Zr', 
+#                   'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 
+#                   'Sb', 'Te', 'I', 'Xe', 'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 
+#                   'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 
+#                   'Lu', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 
+#                   'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn', 'Fr', 'Ra', 'Ac', 'Th', 
+#                   'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 
+#                   'Md', 'No', 'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 
+#                   'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']
+ELEMENTS = ['Cs', 'Er', 'Xe', 'Tc', 'Eu', 'Gd', 'Li', 'Hf', 'Dy', 'F', 'Te', 'Ti', 'Hg', 'Bi', 'Pr', 'Ne', 'Sm', 'Be', 'Au', 'Pb', 'C', 'Zr', 'Ir', 'Pd', 'Sc', 'Yb', 'Os', 'Nb', 'Ac', 'Rb', 'Al', 'P', 'Ga', 'Na', 'Cr', 'Ta', 'Br', 'Pu', 'Ge', 'Tb', 'La', 'Se', 'V', 'Pa', 'Ni', 'In', 'Cu', 'Fe', 'Co', 'Pm', 'N', 'K', 'Ca', 'Rh', 'B', 'Tm', 'I', 'Ho', 'Sb', 'As', 'Tl', 'Ru', 'U', 'Np', 'Cl', 'Re', 'Ag', 'Ba', 'H', 'O', 'Mg', 'W', 'Sn', 'Mo', 'Pt', 'Zn', 'Sr', 'S', 'Kr', 'Cd', 'Si', 'Y', 'Lu', 'Th', 'Nd', 'Mn', 'He', 'Ce']
+
+TRANSITION_METALS = ['Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg']
+LANTHANIDES = ['La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu']
+ACTINIDES = ['Ac', 'Th', 'Pa', 'U', 'Np', 'Pu']
+NOBLE = ['Xe', 'Ne', 'Kr', 'He']
+HALOGENS = ['F', 'Br', 'Cl', 'I']
+G1 = ['Li', 'Na', 'K', 'Rb', 'Cs']
+G2 = ['Be', 'Mg', 'Ca', 'Sr', 'Ba']
+NONMETALS = ['H','B', 'C', 'N', 'O', 'Si', 'P', 'S', 'As', 'Se', 'Te']
+POST_TRANSITION_METALS = ['Al', 'Ga', 'Ge', 'In', 'Sn', 'Sb', 'Tl', 'Pb', 'Bi']
+
+
 SPECIES_IND = {i:mendeleev.element(ELEMENTS[i]).atomic_number for i in range(len(ELEMENTS))}
 SPECIES_IND_INV = {mendeleev.element(ELEMENTS[i]).atomic_number:i for i in range(len(ELEMENTS))}
-N_ATOMS_PEROV = 2
+N_ATOMS_PEROV = 1
 
 class OfflineTrajectories():
     def __init__(self, data, seed = 42, bfs_start = 0, sample_ind = 0, alpha = 1, beta = 0, reward_flag = True, graph_type = 'g'):
@@ -55,15 +69,20 @@ class OfflineTrajectories():
         self.ret = 0
         cif_string = self.data.loc[self.sample_ind]['cif']
         canonical_crystal = build_crystal(cif_string)
+        space_group_no = torch.tensor([canonical_crystal.get_space_group_info()[1]])
         state = build_crystal_graph(canonical_crystal, SPECIES_IND_INV)
 
         lengths = torch.tensor(canonical_crystal.lattice.abc)
         angles = torch.tensor(canonical_crystal.lattice.angles)
-        state.lengths_angles_focus = torch.cat([lengths, angles])
+        state.lengths_angles_focus = torch.cat([lengths, angles, space_group_no])
         self.n_sites = state.num_nodes()
         self.history = []
-        self.traversal = torch.cat(list(bfs_nodes_generator(state, self.bfs_start)))
         self.err_flag = 0
+
+        if self.bfs_start >= self.n_sites:
+            self.err_flag = 1
+            return None
+        self.traversal = torch.cat(list(bfs_nodes_generator(state, self.bfs_start)))
         try:
             assert len(self.traversal) == self.n_sites
         except:
@@ -266,11 +285,12 @@ def evaluate_test(data_path):
     torch.save(prop_list, 'prop_list_test_final.pt') 
     return gen_metrics      
 
-def run_episode_tensor(graph_object, reward_path, eps):
+def run_episode_tensor(graph_object, prop, eps):
     observations = []
     actions = []
     next_observations = []
     rewards = []
+    bandgaps = []
     terminals = []
     traversal = graph_object.traversal
     n = graph_object.n_sites
@@ -279,11 +299,16 @@ def run_episode_tensor(graph_object, reward_path, eps):
         node = traversal[i]
         r = np.random.rand()
         d['atomic_number'] = deepcopy(graph_object.state.ndata['atomic_number'])
+        focus_feature = torch.zeros((n,1))
+        focus_feature[node,0] = 1.
+        d['atomic_number'] = torch.cat([d['atomic_number'], focus_feature], dim = 1)
+        # atomic_number = deepcopy(d['atomic_number'])
         d['true_atomic_number'] = deepcopy(graph_object.state.ndata['true_atomic_number'])
         d['coordinates'] = deepcopy(graph_object.state.ndata['coords'])
         d['edges'] = graph_object.state.edges()
         d['etype'] = graph_object.state.edata['to_jimages']
-        d['laf'] = torch.cat([graph_object.state.lengths_angles_focus, one_hot(traversal[i], n)])
+        d['laf'] = graph_object.state.lengths_angles_focus #torch.cat([graph_object.state.lengths_angles_focus, one_hot(traversal[i], n)])
+        d['ind'] = graph_object.sample_ind
         observations.append(d)
         if r < 1 - eps:
             action = torch.where(graph_object.state.ndata['true_atomic_number'][node])[0]
@@ -296,78 +321,109 @@ def run_episode_tensor(graph_object, reward_path, eps):
         graph_object.state.ndata['atomic_number'][node][-1] = 0
         d = {}
         d['atomic_number'] = deepcopy(graph_object.state.ndata['atomic_number'])
+        if i < n-1:
+            focus_feature = torch.zeros((n,1))
+            focus_feature[traversal[i+1],0] = 1.
+        else:
+            focus_feature = torch.zeros((n,1))
+        d['atomic_number'] = torch.cat([d['atomic_number'], focus_feature], dim = 1)
         d['true_atomic_number'] = deepcopy(graph_object.state.ndata['true_atomic_number'])
         d['coordinates'] = deepcopy(graph_object.state.ndata['coords'])
         d['edges'] = graph_object.state.edges()
-        d['etype'] = graph_object.state.edata['to_jimages']
-        if i < n-1:
-            d['laf'] = torch.cat([graph_object.state.lengths_angles_focus, one_hot(traversal[i + 1], n)])
-        else:
-            d['laf'] = torch.cat([graph_object.state.lengths_angles_focus, torch.zeros(n)])
+        # d['etype'] = graph_object.state.edata['to_jimages']
+        d['laf'] = graph_object.state.lengths_angles_focus
+        d['ind'] = graph_object.sample_ind
+        # if i < n-1:
+        #     d['laf'] = torch.cat([graph_object.state.lengths_angles_focus, one_hot(traversal[i + 1], n)])
+        # else:
+        #     d['laf'] = torch.cat([graph_object.state.lengths_angles_focus, torch.zeros(n)])
         next_observations.append(d)
         actions.append(action)
         if i == n - 1:
-            reward = None
-            with open(reward_path, 'r') as file:
-                for line in file:
-                    if 'internal energy' in line:
-                        reward = float(line.split()[-2])
-                        break
-            assert reward != None
-            rewards.append(reward)
+            bg, energy = prop
+            # reward = None
+            # bandgap = None
+            # try:
+            #     with open(reward_path, 'r') as file:
+            #         lines = file.read()
+            #         high, low = lines.split('highest occupied, lowest unoccupied level (ev):')[1].split('!')[0].split()
+            #         bandgap = float(low)-float(high)
+            #         if bandgap <0:
+            #             bandgap = 0
+            #         reward = float(lines.split('!    total energy')[1].split()[1])
+            #             # rewards.append(reward)
+            #             # true.append(data.loc[i]['bandgap'])
+
+            # except:
+            #     pass
+                # for line in file:
+                #     if '!    total energy' in line:
+                #         reward = float(line.split()[4])
+                #         break
+                #     elif 'total energy' in line: 
+                #         if 'following' not in line:
+                #             reward = float(line.split()[-2])
+            # assert reward != None and bandgap != None
+            rewards.append(energy)
+            bandgaps.append(bg)
             terminals.append(True)
+            # print(reward)
         else:
-            rewards.append(0)
+            rewards.append(0.)
             terminals.append(False)
         # if action == graph_object.state.ndata['true_atomic_number'][node]:
         #     ret += 1
+    # observations.append(d)
 
-
-    return observations, actions, next_observations, rewards, terminals
-def generate_trajectories_tensor(file_name, save_path, reward_dir = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/calculations/', eps = 0.):
+    return observations, actions, rewards, next_observations, bandgaps, terminals
+def generate_trajectories_tensor(file_name, save_path, metals_prop, nonmetals_prop, eps = 0.):
     observations_list =  []
     actions_list =  []
     next_observations_list =  []
     rewards_list =  []
     terminals_list = []
+    bandgaps_list = []
     data = pd.read_csv(file_name)
-    n_samples =  1000 #data.shape[0]
-    for i in tqdm(range(n_samples)):
+    s = list(metals_prop.keys()) + list(nonmetals_prop.keys())
+    n_samples = data.shape[0]
+    for i in tqdm(s):
         flag = 0
-        reward_path = reward_dir + 'espresso_' + str(i) + '.pwo'
+        # reward_path = reward_dir + 'espresso_' + str(i) + '.pwo'
+        if not metals_prop.get(i,0) and not nonmetals_prop.get(i,0):
+            continue
+        elif metals_prop.get(i,0):
+            prop = metals_prop[i]
+        else:
+            prop = nonmetals_prop[i]
         for j in range(N_ATOMS_PEROV):
             graph_object = OfflineTrajectories(data = data, bfs_start = j, sample_ind = i, reward_flag = (j == 0), graph_type = 'mg')
             if graph_object.err_flag == 1:
                 break
             try:
-                observations, actions, next_observations, rewards, terminals = run_episode_tensor(graph_object, reward_path, eps)
+                observations, actions, rewards, next_observations, bandgaps, terminals = run_episode_tensor(graph_object, prop, eps)
             except:
                 flag = 1
                 break
             observations_list += (observations)
+            # print(len(observations_list))
             actions_list += (actions)
             next_observations_list += next_observations
             rewards_list += rewards
             terminals_list += terminals
+            bandgaps_list += bandgaps
     d = {'observations': observations_list, 'actions': actions_list, 'next_observations': next_observations_list, 
-        'rewards': rewards_list, 'terminals': terminals_list}
+        'rewards': rewards_list, 'bandgaps':bandgaps_list, 'terminals': terminals_list}
     print('Saving data')
+    print('Number of crystals: ', len(rewards_list), len(terminals_list))
     torch.save(d, save_path)
 if __name__ == '__main__':
     print('Started!')
-    # generate_data(file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/train.csv',
-    #               save_path='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mg.pt')
-    # generate_data(file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/val.csv',
-    #               save_path='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/val_mg.pt')
-    # generate_data(file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/test.csv',
-    #               save_path='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/test_mg.pt')
-
-    # generate_data(file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/train.csv',
-    #               save_path='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mg.pt')
+    metals_prop = pickle.load(open('m_dict.pkl', 'rb'))
+    nonmetals_prop = pickle.load(open('nm_dict.pkl', 'rb'))
     generate_trajectories_tensor(file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/mp_20/train.csv',
-                  save_path='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg.pt')
-    # generate_data(file_name = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/data/perov_5/test.csv',
-    #               save_path='/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/test_mg.pt')
+                                save_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_x1.pt',
+                                metals_prop = metals_prop,
+                                nonmetals_prop = nonmetals_prop)
 
     # for traj in [5]:
     #     test_valid_list = []

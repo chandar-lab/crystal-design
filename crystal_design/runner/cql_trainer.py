@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 import random
 import uuid
-from crystal_design.agents.bc_agent import EGNNAgentBC, RandomAgent, GCNAgentBC, LinearAgentBC
-from crystal_design.utils import collate_function, collate_functionV2, collate_functionV3, collate_function_offline, collate_function_offline_eval
+from crystal_design.agents.bc_agent import EGNNAgentBC, MEGNetRL#, RandomAgent, GCNAgentBC, LinearAgentBC
+from crystal_design.utils import collate_function, collate_functionV2, collate_functionV3, collate_function_offline, collate_function_offline_eval, collate_function_megnet, collate_function_megnet_eval
 from torcheval.metrics import MulticlassPrecision, MulticlassRecall
 from sklearn.metrics import recall_score, precision_score
 # import d4rl
@@ -28,7 +28,7 @@ from p_tqdm import p_umap
 
 TensorBatch = List[torch.Tensor]
 NUM_CLASSES = 88
-SI_BG  = 4.0
+SI_BG  = 1.12
 PAD_SEQ = -10000
 def create_sublists(A, B):
     output = []
@@ -78,7 +78,7 @@ class TrainConfig:
     normalize_reward: bool = False  # Normalize reward
     # Wandb logging
     project: str = "CORL-Crystal-NEW"
-    group: str = "1024-2layer-beta3-alpha5-bg4.nq2"
+    group: str = "1024-megnet-beta3-alpha5-bg112.nq1"
     # group: str = "tmp"
     name: str = "Run1"
 
@@ -90,7 +90,7 @@ class TrainConfig:
 
 def soft_update(target: nn.Module, source: nn.Module, tau: float):
     for target_param, source_param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_((1 - tau) * target_param.data + tau * source_param.data)
+        target_param.data.copy_((1 - tau) * target_param.data + tau * source_param.data.cuda())
 
 
 def compute_mean_std(states: np.ndarray, eps: float) -> Tuple[np.ndarray, np.ndarray]:
@@ -226,7 +226,7 @@ class ReplayBuffer:
         bandgaps = [self._bandgaps[i] for i in indices]
         next_states = [self._next_states[i] for i in indices]
         dones = [self._dones[i] for i in indices]
-        states, actions, next_states, rewards, bandgaps, dones = collate_function_offline(states, actions, rewards, bandgaps, next_states, dones)
+        states, actions, next_states, rewards, bandgaps, dones = collate_function_megnet(states, actions, rewards, bandgaps, next_states, dones)
         return states, actions, next_states, rewards, bandgaps, dones #, indices, n_sites
 
 
@@ -622,14 +622,14 @@ class ContinuousCQL:
     def _q_loss(
         self, observations, actions, next_observations, rewards, bandgaps, dones, alpha, log_dict
     ):
-    
-        batch_size = observations.n_atoms.shape[0]
-        q1_all = self.critic_1(observations)
-        q2_all = self.critic_2(observations)
+        batch_size = observations.lengths_angles_focus.shape[0]
+        # q1_all = self.critic_1(observations)
+        q1_all = self.critic_1(observations,observations.edata['e_feat'], observations.ndata['atomic_number'], observations.lengths_angles_focus)
+        # q2_all = self.critic_2(observations)
         pred_actions = torch.argmax(q1_all, dim = 1)
         
         q1_predicted = q1_all[range(batch_size), actions]
-        q2_predicted = q2_all[range(batch_size), actions]
+        # q2_predicted = q2_all[range(batch_size), actions]
         actions = torch.stack(actions).cuda()
         assert pred_actions.shape == actions.shape
 
@@ -658,13 +658,13 @@ class ContinuousCQL:
             ).squeeze(-1)
         else:
             # new_next_actions, next_log_pi = self.actor(next_observations)
-            target_q_values = torch.min(
-                torch.max(self.target_critic_1(next_observations), dim = 1)[0],
-                torch.max(self.target_critic_2(next_observations), dim = 1)[0],
-            )   ## Add indexing here by indexing it with actions
-            # with torch.no_grad():
-            #     target_q_values = torch.max(self.target_critic_1(next_observations), dim = 1)[0]
-                ## Stop gradients here
+            # target_q_values = torch.min(
+            #     torch.max(self.target_critic_1(next_observations, next_observations.edata['e_feat'], next_observations.ndata['atomic_number'], next_observations.lengths_angles_focus), dim = 1)[0],
+            #     torch.max(self.target_critic_2(next_observations), dim = 1)[0],
+            # )   ## Add indexing here by indexing it with actions
+            with torch.no_grad():
+                target_q_values = torch.max(self.target_critic_1(next_observations, next_observations.edata['e_feat'], next_observations.ndata['atomic_number'], next_observations.lengths_angles_focus), dim = 1)[0]
+                # Stop gradients here
 
         # if self.backup_entropy:
             # target_q_values = target_q_values - alpha * next_log_pi
@@ -686,12 +686,12 @@ class ContinuousCQL:
         td_target = td_target.squeeze(-1)
         # td_target = torch.ones_like(q1_predicted).cuda() * 10000
         qf1_loss = F.mse_loss(q1_predicted, td_target.detach())
-        qf2_loss = F.mse_loss(q2_predicted, td_target.detach())
+        # qf2_loss = F.mse_loss(q2_predicted, td_target.detach())
 
         ## CQL
         # action_dim = actions[0].shape[-1]
         cql_qf1_ood = torch.logsumexp(q1_all / self.cql_temp, dim = -1) * self.cql_temp
-        cql_qf2_ood = torch.logsumexp(q2_all / self.cql_temp, dim = -1) * self.cql_temp
+        # cql_qf2_ood = torch.logsumexp(q2_all / self.cql_temp, dim = -1) * self.cql_temp
 
         # cql_random_actions = actions.new_empty(   ##CQL_N_ACTIONS should sample discrete actions
         #     (batch_size, self.cql_n_actions, action_dim), requires_grad=False
@@ -767,11 +767,11 @@ class ContinuousCQL:
             self.cql_clip_diff_min,
             self.cql_clip_diff_max,
         ).mean()
-        cql_qf2_diff = torch.clamp(
-            cql_qf2_ood - q2_predicted,
-            self.cql_clip_diff_min,
-            self.cql_clip_diff_max,
-        ).mean()
+        # cql_qf2_diff = torch.clamp(
+        #     cql_qf2_ood - q2_predicted,
+        #     self.cql_clip_diff_min,
+        #     self.cql_clip_diff_max,
+        # ).mean()
 
         if self.cql_lagrange:
             alpha_prime = torch.clamp(
@@ -794,19 +794,19 @@ class ContinuousCQL:
             self.alpha_prime_optimizer.step()
         else:
             cql_min_qf1_loss = cql_qf1_diff * self.cql_min_q_weight
-            cql_min_qf2_loss = cql_qf2_diff * self.cql_min_q_weight
+            # cql_min_qf2_loss = cql_qf2_diff * self.cql_min_q_weight
             # alpha_prime_loss = observations.new_tensor(0.0)
             # alpha_prime = observations.new_tensor(0.0)
 
-        qf_loss = qf1_loss + qf2_loss + cql_min_qf1_loss + cql_min_qf2_loss
+        qf_loss = qf1_loss + cql_min_qf1_loss #+ cql_min_qf2_loss+ qf2_loss +
         # qf_loss = qf1_loss * 0.5 + cql_min_qf1_loss 
         log_dict.update(
             dict(
                 qf1_loss=qf1_loss.item(),
-                qf2_loss=qf2_loss.item(),
+                # qf2_loss=qf2_loss.item(),
                 alpha=alpha.item(),
                 average_qf1=q1_predicted.mean().item(),
-                average_qf2=q2_predicted.mean().item(),
+                # average_qf2=q2_predicted.mean().item(),
                 average_target_q=target_q_values.mean().item(),
                 accuracy = acc,
                 precision = prec,
@@ -820,9 +820,9 @@ class ContinuousCQL:
                 # cql_q1_rand=cql_q1_rand.mean().item(),
                 # cql_q2_rand=cql_q2_rand.mean().item(),
                 cql_min_qf1_loss=cql_min_qf1_loss.mean().item(),
-                cql_min_qf2_loss=cql_min_qf2_loss.mean().item(),
+                # cql_min_qf2_loss=cql_min_qf2_loss.mean().item(),
                 cql_qf1_diff=cql_qf1_diff.mean().item(),
-                cql_qf2_diff=cql_qf2_diff.mean().item(),
+                # cql_qf2_diff=cql_qf2_diff.mean().item(),
                 # cql_q1_current_actions=cql_q1_current_actions.mean().item(),
                 # cql_q2_current_actions=cql_q2_current_actions.mean().item(),
                 # cql_q1_next_actions=cql_q1_next_actions.mean().item(),
@@ -846,15 +846,25 @@ class ContinuousCQL:
         observations.lengths_angles_focus = observations.lengths_angles_focus.to(device = 'cuda:0')
         # next_observations = next_observations.to(device = 'cuda:0')
         # next_observations.lengths_angles_focus = next_observations.lengths_angles_focus.to(device = 'cuda:0')
-        q1_all = self.critic_1(observations)
-        pred_actions = torch.argmax(q1_all, dim = 1) ### Nodes x 1 
+        q1_all = self.critic_1(observations,observations.edata['e_feat'], observations.ndata['atomic_number'], observations.lengths_angles_focus)
+        # q2_all = self.critic_2(observations)
+        # q = (q1_all + q2_all) / 2.0
+        pred_actions = (torch.argmax(q1_all)) ### Nodes x 1 
+        
+        # pred_actions = torch.argmax(q, dim = 1) ### Nodes x 1 
         atomic_number = observations.ndata['atomic_number']   ### Nodes X (D + 2)
         curr_focus = atomic_number[:,-1]
         index_curr_focus = torch.where(curr_focus)[0]
         n = index_curr_focus.shape[0]
-        t = pred_actions.shape[0]
+        try:
+            t = pred_actions.shape[0]
+        except:
+            t = 1
         atomic_number[:, -2][index_curr_focus] = 0.  ## Correct
-        atomic_number[index_curr_focus, pred_actions[t-n:]] = 1. ## Could lead to index mismatch issues
+        try:
+            atomic_number[index_curr_focus, pred_actions[t-n:]] = 1. ## Could lead to index mismatch issues
+        except:
+             atomic_number[index_curr_focus, pred_actions] = 1.
         next_focus = batch_focus[:,step]
         cum_sum_nsites = torch.cat((torch.tensor([0]), torch.cumsum(n_sites, dim = 0)[:-1]))
         next_focus = next_focus + cum_sum_nsites
@@ -918,12 +928,12 @@ class ContinuousCQL:
         # policy_loss.backward()
         # self.actor_optimizer.step()
         self.critic_1_optimizer.zero_grad()
-        self.critic_2_optimizer.zero_grad()
+        # self.critic_2_optimizer.zero_grad()
         # qf_loss.backward(retain_graph=True)
         qf_loss.backward() 
         torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), max_norm=5., error_if_nonfinite = True)
         self.critic_1_optimizer.step()
-        self.critic_2_optimizer.step()
+        # self.critic_2_optimizer.step()
 
         if self.total_it % self.target_update_period == 0:
             self.update_target_network(self.soft_target_update_rate)
@@ -1030,8 +1040,10 @@ def train(config: TrainConfig):
     #     config.device
     # )
 
-    critic_1 = EGNNAgentBC(graph_type = 'mg')
-    critic_2 = EGNNAgentBC(graph_type = 'mg')
+    # critic_1 = EGNNAgentBC(graph_type = 'mg')
+    # critic_2 = EGNNAgentBC(graph_type = 'mg')
+    critic_1 = MEGNetRL()
+    critic_2 = MEGNetRL()
 
     critic_1_optimizer = torch.optim.Adam(list(critic_1.parameters()), config.qf_lr)
     critic_2_optimizer = torch.optim.Adam(list(critic_2.parameters()), config.qf_lr)
@@ -1137,12 +1149,19 @@ def cql_eval(config: TrainConfig, model_path, data_path, save_path):
         config.buffer_size,
         config.device,
     )
+    categories = torch.load('../categories.pt')
     state_dict = torch.load(model_path)
-    model = EGNNAgentBC(graph_type = 'mg')
+    # L = ["egnn_net.egnn_fn_3.edge_mlp.0.weight", "egnn_net.egnn_fn_3.edge_mlp.0.bias", "egnn_net.egnn_fn_3.edge_mlp.2.weight", "egnn_net.egnn_fn_3.edge_mlp.2.bias", "egnn_net.egnn_fn_3.node_mlp.0.weight", "egnn_net.egnn_fn_3.node_mlp.0.bias", "egnn_net.egnn_fn_3.node_mlp.2.weight", "egnn_net.egnn_fn_3.node_mlp.2.bias", "egnn_net.egnn_fn_3.coord_mlp.0.weight", "egnn_net.egnn_fn_3.coord_mlp.0.bias", "egnn_net.egnn_fn_3.coord_mlp.2.weight", "egnn_net.egnn_fn_4.edge_mlp.0.weight", "egnn_net.egnn_fn_4.edge_mlp.0.bias", "egnn_net.egnn_fn_4.edge_mlp.2.weight", "egnn_net.egnn_fn_4.edge_mlp.2.bias", "egnn_net.egnn_fn_4.node_mlp.0.weight", "egnn_net.egnn_fn_4.node_mlp.0.bias", "egnn_net.egnn_fn_4.node_mlp.2.weight", "egnn_net.egnn_fn_4.node_mlp.2.bias", "egnn_net.egnn_fn_4.coord_mlp.0.weight", "egnn_net.egnn_fn_4.coord_mlp.0.bias", "egnn_net.egnn_fn_4.coord_mlp.2.weight"]
+    # for l in L:
+    #     del state_dict['critic1'][l]
+    #     del state_dict['critic2'][l]
+    model = MEGNetRL()
     model.load_state_dict(state_dict['critic1'])
+    model2 = MEGNetRL()
+    model2.load_state_dict(state_dict['critic2'])
     kwargs = {
         "critic_1": model,
-        "critic_2": EGNNAgentBC(graph_type = 'mg'),
+        "critic_2": model2,
         "critic_1_optimizer": torch.optim.Adam(list(model.parameters()), config.qf_lr),
         "critic_2_optimizer": torch.optim.Adam(list(model.parameters()), config.qf_lr),
         "actor": EGNNAgentBC(graph_type = 'mg'),
@@ -1173,39 +1192,45 @@ def cql_eval(config: TrainConfig, model_path, data_path, save_path):
     trainer = ContinuousCQL(**kwargs)
     data = torch.load(data_path)
     n_sites = get_nsites(data)
-    # replay_buffer.load_eval_dataset(data, n_sites)
+    replay_buffer.load_eval_dataset(data, n_sites)
     loader_n = DataLoader(n_sites, batch_size = 1, num_workers = 0, shuffle = False)
     loader_focus = DataLoader(replay_buffer._focus_all, batch_size = 1, num_workers = 0, shuffle = False)
-    eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 1, collate_fn = collate_function_offline_eval, shuffle = False)
+    eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 1, collate_fn = collate_function_megnet_eval, shuffle = False)
     bg_loader = DataLoader(replay_buffer._bandgaps, batch_size = 1, num_workers = 0, shuffle = False)
     recons_acc_list = []
     pred_accuracy_list = []
+    cat_acc_list = []
     obs_list = []
     for batch, batch_focus, n_sites_batch in tqdm(zip(eval_dataloader, loader_focus, loader_n)):
         step = 0
         MAX_STEPS = batch_focus.shape[1]
-        observations = batch[0]
+        observations = batch #batch[0]
         for step in range(MAX_STEPS):
             observations, pred_actions, prev_focus = trainer.eval(observations, batch_focus, n_sites_batch, step)
             true_actions = observations.ndata['true_atomic_number'][prev_focus]
             # print(torch.sum(true_actions == pred_actions))
         pred_types = torch.argmax(observations.ndata['atomic_number'], dim = 1)
+        pred_cat = categories[pred_types.cpu(),1]
         true_types = observations.ndata['true_atomic_number']
+        true_cat = categories[true_types.cpu(),1]
         matches = (pred_types == true_types)
         pred_acc = torch.mean(matches.float())
+        cat_acc = torch.mean((true_cat == pred_cat).float())
         matches = torch.split(matches, n_sites_batch.tolist())
         pred_accuracy_list.append(pred_acc)
+        cat_acc_list.append(cat_acc)
         matches = torch.tensor([torch.prod(mat) for mat in matches])
         recons_acc = torch.mean(matches.float())
         recons_acc_list.append(recons_acc)
         obs_list.append(observations)
     print('Final recons accuracy = ', torch.mean(torch.tensor(recons_acc_list)))
     print('Final pred accuracy = ', torch.mean(torch.tensor(pred_accuracy_list)))
+    print('Final Category Accuracy = ', torch.mean(torch.tensor(cat_acc_list)))
     torch.save(obs_list, save_path)
 if __name__ == "__main__":
     print('Starting')
-    train()
-    # model_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/cql_models/models_1/Run1-crystal-6772079e/checkpoint_950000.pt'
-    # data_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/train_mp_mg_3kbandsval.pt'
-    # save_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/runner/val_generated/val_950k.pt'
-    # cql_eval(model_path=model_path, data_path=data_path, save_path = save_path)
+    # train()
+    model_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/cql_models/models_1/Run1-crystal-11e969b7/checkpoint_300000.pt'
+    data_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/val_mp_mg_subset.pt'
+    save_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/runner/train_generated/val_1_12_megnet_1Q.pt'
+    cql_eval(model_path=model_path, data_path=data_path, save_path = save_path)

@@ -1,6 +1,12 @@
 import torch
 import dgl
 from copy import deepcopy
+import numpy as np
+from p_tqdm import p_map, p_umap
+from matgl.layers import MLP, BondExpansion
+
+SI_BG = 1.12
+NUM_WORKERS = 16
 
 def get_device() -> torch.device:
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -145,7 +151,175 @@ def collate_functionV3(batch_list):
 #         writer = CifWriter(canonical_crystal)
 #         writer.write_file('/home/mila/p/prashant.govindarajan/scratch/COMP760-Project/cdvae/cosine/generated_cifs_new/'+str(i)+'.cif')   ##Change path
 
-def collate_function_offline(states, actions, rewards, next_states, dones):
+def create_feature_lists(data_dict, data_dict_next, action, reward, bandgap, done, sum_n_atoms):
+    atomic_number = data_dict['atomic_number']
+    atomic_number_next = data_dict_next['atomic_number']
+    n_atoms = data_dict['atomic_number'].shape[0]
+    true_atomic_number = data_dict['true_atomic_number']
+    position = data_dict['coordinates']
+    laf = torch.cat((data_dict['laf'], torch.tensor([4.0]))) #data_dict['laf'] #torch.cat((data_dict['laf'], torch.zeros(494-n_atoms)))
+    edges_u =  data_dict['edges'][0] + sum_n_atoms
+    edges_v =  data_dict['edges'][1] + sum_n_atoms
+    to_jimages = data_dict['etype']
+
+    return atomic_number, atomic_number_next, true_atomic_number, position, laf, edges_u, edges_v, to_jimages, n_atoms, action, reward, bandgap, done
+
+
+def collate_function_megnet(states, actions, rewards, bandgaps, next_states, dones):
+    batch_size = len(states)
+    atomic_number_list = [None] * batch_size
+    true_atomic_number_list = [None] * batch_size
+    position_list = [None] * batch_size 
+    laf_list = [None] * batch_size
+    edges_u = [None] * batch_size
+    edges_v = [None] * batch_size
+    to_jimages = [None] * batch_size
+    sum_n_atoms = 0
+    n_atoms_list = []
+    n_edges_list = []
+    ind_list = []
+    atomic_number_list_next = [None] * batch_size
+
+    for i in range(batch_size):
+        data_dict = states[i]
+        atomic_number_list[i] = data_dict['atomic_number']
+        n_atoms = data_dict['atomic_number'].shape[0]
+        true_atomic_number_list[i] = data_dict['true_atomic_number']
+        position_list[i] = data_dict['coordinates']
+        laf_list[i] = torch.cat((data_dict['laf'], torch.tensor([SI_BG]))) #data_dict['laf'] #torch.cat((data_dict['laf'], torch.zeros(494-n_atoms)))
+        edges_u_single =  data_dict['edges'][0] + sum_n_atoms
+        edges_v_single =  data_dict['edges'][1] + sum_n_atoms
+        edges_cat = torch.cat([edges_u_single[:,None], edges_v_single[:,None]], dim = 1)
+        to_jimages[i] = data_dict['etype']
+        ind = torch.where(torch.prod(to_jimages[i]==0, dim = 1))[0]
+        edges_cat = edges_cat[ind, :]
+        edges_cat = torch.unique(edges_cat, dim = 0)
+        edges_u[i] = edges_cat[:,0]
+        edges_v[i] = edges_cat[:,1]
+        n_edges_list.append(edges_cat.shape[0])
+        sum_n_atoms += n_atoms
+        n_atoms_list.append(n_atoms)
+        ind_list.append(data_dict['ind'])
+
+        data_dict_next = next_states[i]
+        atomic_number_list_next[i] = data_dict_next['atomic_number']
+    edges_cat = torch.cat([torch.cat(edges_u)[:,None], torch.cat(edges_v)[:,None]], dim = 1)
+    # to_jimages = torch.cat(to_jimages, dim = 0)
+    # ind = torch.where(torch.prod(to_jimages==0, dim = 1))[0]
+    # edges_cat = edges_cat[ind, :]
+    # edges_cat = torch.unique(edges_cat, dim = 0)
+    position = torch.cat(position_list, dim = 0)
+    edata = torch.norm(position[edges_cat[:,0]] - position[edges_cat[:,1]], dim = 1)
+    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g.ndata['atomic_number'] = torch.cat(atomic_number_list, dim = 0)
+    g.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
+    # g.ndata['position'] = torch.cat(position_list, dim = 0)
+    g.lengths_angles_focus = torch.stack(laf_list)#.cuda()
+    g.edata['e_feat'] = edata
+    # g.edata['to_jimages'] = torch.cat(to_jimages, dim = 0) #torch.cat(to_jimages, dim = 0)
+    g.set_batch_num_nodes(torch.tensor(n_atoms_list))
+    g.set_batch_num_edges(torch.tensor(n_edges_list))
+    g.inds = torch.tensor(ind_list)
+
+    # edges_cat_next = torch.cat([torch.cat(edges_u_next)[:,None], torch.cat(edges_v_next)[:,None]], dim = 1)
+    # to_jimages_next = torch.cat(to_jimages_next, dim = 0)
+    # ind_next = torch.where(torch.prod(to_jimages==0, dim = 1))[0]
+    # edges_cat_next = edges_cat_next[ind_next, :]
+    # edges_cat_next = torch.unique(edges_cat_next, dim = 0)
+
+    g_next = dgl.graph(data = torch.unbind((edges_cat), dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g_next.ndata['atomic_number'] = torch.cat(atomic_number_list_next, dim = 0)
+    g_next.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
+    g_next.ndata['position'] = torch.cat(position_list, dim = 0)
+    g_next.lengths_angles_focus = torch.stack(laf_list)#.cuda()
+    g_next.edata['e_feat'] = edata
+    # g_next.edata['to_jimages'] = to_jimages_next #torch.cat(to_jimages_next, dim = 0)
+    # g_next.n_atoms = torch.tensor(n_atoms_list)
+    g_next.set_batch_num_nodes(torch.tensor(n_atoms_list))
+    g_next.set_batch_num_edges(torch.tensor(n_edges_list))
+    g_next.inds = torch.tensor(ind_list)
+
+    return g, actions, g_next, torch.tensor(rewards), torch.tensor(bandgaps), torch.tensor(dones)
+
+
+def collate_function_megnet_eval(batch):
+    batch_size = len(batch)
+    atomic_number_list = [None] * batch_size
+    true_atomic_number_list = [None] * batch_size
+    position_list = [None] * batch_size 
+    laf_list = [None] * batch_size
+    edges_u = [None] * batch_size
+    edges_v = [None] * batch_size
+    to_jimages = [None] * batch_size
+    sum_n_atoms = 0
+    n_atoms_list = []
+    n_edges_list = []
+    ind_list = []
+    atomic_number_list_next = [None] * batch_size
+
+    for i in range(batch_size):
+        data_dict = batch[i][0]
+        atomic_number_list[i] = data_dict['atomic_number']
+        n_atoms = data_dict['atomic_number'].shape[0]
+        true_atomic_number_list[i] = data_dict['true_atomic_number']
+        position_list[i] = data_dict['coordinates']
+        laf_list[i] = torch.cat((data_dict['laf'], torch.tensor([SI_BG]))) #data_dict['laf'] #torch.cat((data_dict['laf'], torch.zeros(494-n_atoms)))
+        edges_u_single =  data_dict['edges'][0] + sum_n_atoms
+        edges_v_single =  data_dict['edges'][1] + sum_n_atoms
+        edges_cat = torch.cat([edges_u_single[:,None], edges_v_single[:,None]], dim = 1)
+        to_jimages[i] = data_dict['etype']
+        ind = torch.where(torch.prod(to_jimages[i]==0, dim = 1))[0]
+        edges_cat = edges_cat[ind, :]
+        edges_cat = torch.unique(edges_cat, dim = 0)
+        edges_u[i] = edges_cat[:,0]
+        edges_v[i] = edges_cat[:,1]
+        n_edges_list.append(edges_cat.shape[0])
+        sum_n_atoms += n_atoms
+        n_atoms_list.append(n_atoms)
+        ind_list.append(data_dict['ind'])
+
+        data_dict_next = data_dict_next = batch[i][2]
+        atomic_number_list_next[i] = data_dict_next['atomic_number']
+    edges_cat = torch.cat([torch.cat(edges_u)[:,None], torch.cat(edges_v)[:,None]], dim = 1)
+    # to_jimages = torch.cat(to_jimages, dim = 0)
+    # ind = torch.where(torch.prod(to_jimages==0, dim = 1))[0]
+    # edges_cat = edges_cat[ind, :]
+    # edges_cat = torch.unique(edges_cat, dim = 0)
+    position = torch.cat(position_list, dim = 0)
+    edata = torch.norm(position[edges_cat[:,0]] - position[edges_cat[:,1]], dim = 1)
+    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g.ndata['atomic_number'] = torch.cat(atomic_number_list, dim = 0)
+    g.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
+    # g.ndata['position'] = torch.cat(position_list, dim = 0)
+    g.lengths_angles_focus = torch.stack(laf_list)#.cuda()
+    g.edata['e_feat'] = edata
+    # g.edata['to_jimages'] = torch.cat(to_jimages, dim = 0) #torch.cat(to_jimages, dim = 0)
+    g.set_batch_num_nodes(torch.tensor(n_atoms_list))
+    g.set_batch_num_edges(torch.tensor(n_edges_list))
+    g.inds = torch.tensor(ind_list)
+
+    # edges_cat_next = torch.cat([torch.cat(edges_u_next)[:,None], torch.cat(edges_v_next)[:,None]], dim = 1)
+    # to_jimages_next = torch.cat(to_jimages_next, dim = 0)
+    # ind_next = torch.where(torch.prod(to_jimages==0, dim = 1))[0]
+    # edges_cat_next = edges_cat_next[ind_next, :]
+    # edges_cat_next = torch.unique(edges_cat_next, dim = 0)
+
+    g_next = dgl.graph(data = torch.unbind((edges_cat), dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g_next.ndata['atomic_number'] = torch.cat(atomic_number_list_next, dim = 0)
+    g_next.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
+    g_next.ndata['position'] = torch.cat(position_list, dim = 0)
+    g_next.lengths_angles_focus = torch.stack(laf_list)#.cuda()
+    g_next.edata['e_feat'] = edata
+    # g_next.edata['to_jimages'] = to_jimages_next #torch.cat(to_jimages_next, dim = 0)
+    # g_next.n_atoms = torch.tensor(n_atoms_list)
+    g_next.set_batch_num_nodes(torch.tensor(n_atoms_list))
+    g_next.set_batch_num_edges(torch.tensor(n_edges_list))
+    g_next.inds = torch.tensor(ind_list)
+
+    return g#, actions, g_next, torch.tensor(rewards), torch.tensor(bandgaps), torch.tensor(dones)
+
+
+def collate_function_offline(states, actions, rewards, bandgaps, next_states, dones):
     batch_size = len(states)
     atomic_number_list = [None] * batch_size
     true_atomic_number_list = [None] * batch_size
@@ -158,6 +332,107 @@ def collate_function_offline(states, actions, rewards, next_states, dones):
     n_atoms_list = []
 
     atomic_number_list_next = [None] * batch_size
+    # true_atomic_number_list_next = [None] * batch_size
+    # position_list_next = [None] * batch_size 
+    # laf_list_next = [None] * batch_size
+    # edges_u_next = [None] * batch_size
+    # edges_v_next = [None] * batch_size
+    # to_jimages_next = [None] * batch_size
+    # sum_n_atoms_next = 0
+    # n_atoms_list_next = []
+    
+    # batch_size = len(states)
+    # n_atoms = [data_dict['atomic_number'].shape[0] for data_dict in states]
+    # sum_n_atoms = [0] * batch_size
+    # tmp = np.cumsum(n_atoms)
+    # sum_n_atoms[1:] = tmp[:-1]
+
+    # (atomic_number_list, 
+    # atomic_number_list_next, 
+    # true_atomic_number_list, 
+    # position_list, 
+    # laf_list, 
+    # edges_u, 
+    # edges_v,
+    # to_jimages,
+    # n_atoms,
+    # actions,
+    # rewards,
+    # bandgaps,
+    # dones) = zip(*p_umap(
+    #                     create_feature_lists,
+    #                     states,
+    #                     next_states,
+    #                     actions,
+    #                     rewards,
+    #                     bandgaps,
+    #                     dones,
+    #                     sum_n_atoms,
+    #                     num_cpus = 32,
+    #                     disable=True
+    #                 ))
+        
+    for i in range(batch_size):
+        data_dict = states[i]
+        atomic_number_list[i] = data_dict['atomic_number']
+        n_atoms = data_dict['atomic_number'].shape[0]
+        true_atomic_number_list[i] = data_dict['true_atomic_number']
+        position_list[i] = data_dict['coordinates']
+        laf_list[i] = torch.cat((data_dict['laf'], torch.tensor([SI_BG]))) #data_dict['laf'] #torch.cat((data_dict['laf'], torch.zeros(494-n_atoms)))
+        edges_u[i] =  data_dict['edges'][0] + sum_n_atoms
+        edges_v[i] =  data_dict['edges'][1] + sum_n_atoms
+        sum_n_atoms += n_atoms
+        to_jimages[i] = data_dict['etype']
+        n_atoms_list.append(n_atoms)
+
+        data_dict_next = next_states[i]
+        atomic_number_list_next[i] = data_dict_next['atomic_number']
+        n_atoms_next = data_dict_next['atomic_number'].shape[0]
+    edges_cat = torch.cat([torch.cat(edges_u)[:,None], torch.cat(edges_v)[:,None]], dim = 1)
+    to_jimages = torch.cat(to_jimages, dim = 0)
+    ind = torch.where(torch.prod(to_jimages==0, dim = 1))[0]
+    edges_cat = edges_cat[ind, :]
+    edges_cat = torch.unique(edges_cat, dim = 0)
+    
+    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g.ndata['atomic_number'] = torch.cat(atomic_number_list, dim = 0)
+    g.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
+    g.ndata['position'] = torch.cat(position_list, dim = 0)
+    g.lengths_angles_focus = torch.stack(laf_list)#.cuda()
+    # g.edata['to_jimages'] = torch.cat(to_jimages, dim = 0) #torch.cat(to_jimages, dim = 0)
+    g.n_atoms = torch.tensor(n_atoms_list)
+
+
+    # edges_cat_next = torch.cat([torch.cat(edges_u_next)[:,None], torch.cat(edges_v_next)[:,None]], dim = 1)
+    # to_jimages_next = torch.cat(to_jimages_next, dim = 0)
+    # ind_next = torch.where(torch.prod(to_jimages==0, dim = 1))[0]
+    # edges_cat_next = edges_cat_next[ind_next, :]
+    # edges_cat_next = torch.unique(edges_cat_next, dim = 0)
+
+    g_next = dgl.graph(data = torch.unbind((edges_cat), dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g_next.ndata['atomic_number'] = torch.cat(atomic_number_list_next, dim = 0)
+    g_next.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
+    g_next.ndata['position'] = torch.cat(position_list, dim = 0)
+    g_next.lengths_angles_focus = torch.stack(laf_list)#.cuda()
+    # g_next.edata['to_jimages'] = to_jimages_next #torch.cat(to_jimages_next, dim = 0)
+    g_next.n_atoms = torch.tensor(n_atoms_list)
+
+    return g, actions, g_next, torch.tensor(rewards), torch.tensor(bandgaps), torch.tensor(dones)
+
+def collate_function_offline_eval(batch):
+    batch_size = len(batch)
+    atomic_number_list = [None] * batch_size
+    true_atomic_number_list = [None] * batch_size
+    position_list = [None] * batch_size 
+    laf_list = [None] * batch_size
+    edges_u = [None] * batch_size
+    edges_v = [None] * batch_size
+    to_jimages = [None] * batch_size
+    sum_n_atoms = 0
+    n_atoms_list = []
+    ind_list = []
+
+    atomic_number_list_next = [None] * batch_size
     true_atomic_number_list_next = [None] * batch_size
     position_list_next = [None] * batch_size 
     laf_list_next = [None] * batch_size
@@ -168,47 +443,59 @@ def collate_function_offline(states, actions, rewards, next_states, dones):
     n_atoms_list_next = []
     MAX = 500
     for i in range(batch_size):
-        data_dict = states[i]
+        data_dict = batch[i][0]
         atomic_number_list[i] = data_dict['atomic_number']
         n_atoms = data_dict['atomic_number'].shape[0]
         true_atomic_number_list[i] = data_dict['true_atomic_number']
         position_list[i] = data_dict['coordinates']
-        laf_list[i] =torch.cat((data_dict['laf'], torch.zeros(494-n_atoms)))
+        laf_list[i] = torch.cat((data_dict['laf'], torch.tensor([SI_BG]))) #data_dict['laf'] #torch.cat((data_dict['laf'], torch.zeros(494-n_atoms)))
         edges_u[i] =  data_dict['edges'][0] + sum_n_atoms
         edges_v[i] =  data_dict['edges'][1] + sum_n_atoms
         sum_n_atoms += n_atoms
         to_jimages[i] = data_dict['etype']
         n_atoms_list.append(n_atoms)
+        ind_list.append(data_dict['ind'])
 
-        data_dict_next = next_states[i]
+        data_dict_next = batch[i][2]
         atomic_number_list_next[i] = data_dict_next['atomic_number']
         n_atoms_next = data_dict_next['atomic_number'].shape[0]
         true_atomic_number_list_next[i] = data_dict_next['true_atomic_number']
         position_list_next[i] = data_dict_next['coordinates']
-        laf_list_next[i] = torch.cat((data_dict_next['laf'], torch.zeros(494-n_atoms)))
+        laf_list_next[i] = torch.cat((data_dict_next['laf'], torch.tensor([1.12]))) #data_dict_next['laf'] #torch.cat((data_dict_next['laf'], torch.zeros(494-n_atoms)))
         edges_u_next[i] =  data_dict_next['edges'][0] + sum_n_atoms_next
         edges_v_next[i] =  data_dict_next['edges'][1] + sum_n_atoms_next
         sum_n_atoms_next += n_atoms_next
-        to_jimages_next[i] = data_dict_next['etype']
+        to_jimages_next[i] = data_dict['etype']
         n_atoms_list_next.append(n_atoms_next)
 
-    g = dgl.graph(data = (torch.cat(edges_u), torch.cat(edges_v)), num_nodes = sum_n_atoms)#.to(device='cpu')
+    edges_cat = torch.cat([torch.cat(edges_u)[:,None], torch.cat(edges_v)[:,None]], dim = 1)
+    to_jimages = torch.cat(to_jimages, dim = 0)
+    ind = torch.where(torch.prod(to_jimages==0, dim = 1))[0]
+    edges_cat = edges_cat[ind, :]
+    edges_cat = torch.unique(edges_cat, dim = 0)
+    
+    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
     g.ndata['atomic_number'] = torch.cat(atomic_number_list, dim = 0)
     g.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
     g.ndata['position'] = torch.cat(position_list, dim = 0)
     g.lengths_angles_focus = torch.stack(laf_list)#.cuda()
-    g.edata['to_jimages'] = torch.cat(to_jimages, dim = 0)
+    # g.edata['to_jimages'] = torch.cat(to_jimages, dim = 0)
     g.n_atoms = torch.tensor(n_atoms_list)
+    g.inds = torch.tensor(ind_list)
 
-    g_next = dgl.graph(data = (torch.cat(edges_u_next), torch.cat(edges_v_next)), num_nodes = sum_n_atoms_next)#.to(device='cpu')
+    g_next = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
     g_next.ndata['atomic_number'] = torch.cat(atomic_number_list_next, dim = 0)
     g_next.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list_next, dim = 0)
     g_next.ndata['position'] = torch.cat(position_list_next, dim = 0)
     g_next.lengths_angles_focus = torch.stack(laf_list_next)#.cuda()
-    g_next.edata['to_jimages'] = torch.cat(to_jimages_next, dim = 0)
+    # g_next.edata['to_jimages'] = torch.cat(to_jimages_next, dim = 0)
     g_next.n_atoms = torch.tensor(n_atoms_list_next)
+    g_next.inds = torch.tensor(ind_list)
 
-    return g, actions, g_next, torch.tensor(rewards), torch.tensor(dones)
+    actions = torch.tensor([batch[j][1] for j in range(batch_size)])
+    rewards = torch.tensor([batch[j][3] for j in range(batch_size)])
+    dones = torch.tensor([batch[j][4] for j in range(batch_size)])
+    return g, actions, g_next, -rewards, dones
 
 
     

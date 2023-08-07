@@ -1,0 +1,53 @@
+&CONTROL
+   calculation      = 'scf'
+   verbosity        = 'high'
+   nstep            = 1
+   tstress          = .true.
+   tprnfor          = .true.
+   outdir           = 'new_calculations/'
+   prefix           = 'myprefix'
+   pseudo_dir       = '/home/pragov/projects/rrg-bengioy-ad/pragov/crystal_structure_design/SSSP'
+/
+&SYSTEM
+   ecutwfc          = 30
+   ecutrho          = 240
+   occupations      = 'smearing'
+   degauss          = 0.001
+   smearing         = 'mp'
+   nspin            = 1
+   ntyp             = 2
+   nat              = 8
+   ibrav            = 0
+/
+&ELECTRONS
+   electron_maxstep = 100
+   mixing_mode      = 'plain'
+   mixing_beta      = 0.7
+   diagonalization  = 'david'
+/
+&IONS
+/
+&CELL
+/
+
+ATOMIC_SPECIES
+Lu 174.9668 Lu.GGA-PBE-paw-v1.0.UPF
+Br 79.904 br_pbe_v1.4.uspp.F.UPF
+
+K_POINTS gamma
+
+CELL_PARAMETERS angstrom
+10.47030961000000 0.00000000000000 0.00000000000000
+-5.23515441884883 9.06755433069281 0.00000000000000
+0.00000000000000 0.00000000000000 3.64911500000000
+
+ATOMIC_POSITIONS angstrom
+Lu -0.0000049777 6.0450392430 2.7368362500 
+Lu 5.2351601689 3.0225150877 0.9122787500 
+Br 0.0000001686 3.9583501675 0.9122787500 
+Br 1.8071233890 7.0883792469 0.9122787500 
+Br -1.8071227853 7.0883792469 0.9122787500 
+Br 5.2351550226 5.1092041632 2.7368362500 
+Br 3.4280318021 1.9791750838 2.7368362500 
+Br 7.0422779764 1.9791750838 2.7368362500 
+

@@ -179,10 +179,10 @@ def build_crystal_graph(crystal, species_ind, graph_method='crystalnn'):
     g = dgl.DGLGraph()#.to(device = 'cuda:0')
     g.add_nodes(num_atoms)
     edge_indices = torch.tensor(np.array(edge_indices))
-    g.ndata['atomic_number'] = torch.zeros((num_atoms, 118))#.to(device = 'cuda:0')
+    g.ndata['atomic_number'] = torch.zeros((num_atoms, 89))#.to(device = 'cuda:0')
     g.ndata['atomic_number'][:, -1] = 1
     g.ndata['true_atomic_number'] = torch.tensor(true_atom_types) #.to(device = 'cuda:0')  ## 56 vocab size + 1 blank slot 
-    g.ndata['frac_coords'] = torch.tensor(frac_coords)#.to(device = 'cuda:0')
+    # g.ndata['frac_coords'] = torch.tensor(frac_coords)#.to(device = 'cuda:0')
     g.ndata['coords'] = torch.tensor(coords)
     g.add_edges(edge_indices[:,0], edge_indices[:,1])
     g.edata['to_jimages'] = torch.tensor(to_jimages)
