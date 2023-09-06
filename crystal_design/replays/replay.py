@@ -1,4 +1,5 @@
 from collections import namedtuple, deque
+import random
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))

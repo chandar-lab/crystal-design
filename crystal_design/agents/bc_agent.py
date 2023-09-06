@@ -111,6 +111,7 @@ class MEGNetRL(MEGNet, nn.Module, IOMixIn):
         node_feat, edge_feat, focus_feat = self.embedding(node_feat, edge_feat, focus_feat)
         edge_feat = self.edge_encoder(edge_feat.to(dtype = torch.float32))
         node_feat = self.node_encoder(node_feat)
+        state_feat = state_feat[None, :]
         state_feat = torch.cat((state_feat, focus_feat), dim = 1)
         state_feat = self.state_encoder(state_feat.to(dtype = torch.float32))
         

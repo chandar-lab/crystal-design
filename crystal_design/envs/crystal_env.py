@@ -11,7 +11,11 @@ import mendeleev
 # from crystal_design.utils.data_utils import build_crystal, build_crystal_dgl_graph
 # from crystal_design.utils.converters.pyg_graph_to_tensor import PyGGraphToTensorConverter
 # from crystal_design.utils.converters.compute_prop import Crystal, OptEval
+from pymatgen.io.cif import CifWriter
 from pymatgen.core.structure import Structure
+from pymatgen.core.lattice import Lattice
+from ase.io import read
+from ase.calculators.espresso import Espresso
 import mendeleev
 import dgl
 import torch
@@ -30,7 +34,8 @@ G2 = ['Be', 'Mg', 'Ca', 'Sr', 'Ba']
 NONMETALS = ['H','B', 'C', 'N', 'O', 'Si', 'P', 'S', 'As', 'Se', 'Te']
 POST_TRANSITION_METALS = ['Al', 'Ga', 'Ge', 'In', 'Sn', 'Sb', 'Tl', 'Pb', 'Bi']
 
-pseudo_dir = '/lustre07/scratch/pragov/crystal_structure_design/utils/SSSP'
+pseudo_dir = '/home/pragov/projects/rrg-bengioy-ad/pragov/crystal_structure_design/crystal-design/crystal_design/utils/SSSP'
+pseudodict = pickle.load(open('/home/pragov/projects/rrg-bengioy-ad/pragov/crystal_structure_design/crystal-design/crystal_design/utils/pseudodict.pkl', 'rb'))
 pwo_path = 'out'
 nbnd = 256
 nspin = 1
@@ -87,12 +92,17 @@ class CrystalGraphEnvMP(object):
         edges_u = edges_cat[:,0]
         edges_v = edges_cat[:,1]    
         edata = torch.norm(position_list[edges_cat[:,0]] - position_list[edges_cat[:,1]], dim = 1)
+        
         g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = n_atoms)#.to(device='cpu')
         g.ndata['atomic_number'] = atomic_number_list
+        g.ndata['position'] = position_list
         g.ndata['true_atomic_number'] = true_atomic_number_list
         g.lengths_angles_focus = laf_list #torch.stack(laf_list)#.cuda()
         g.edata['e_feat'] = edata
-
+        g = g.to(device = 'cuda')
+        g.lengths_angles_focus = g.lengths_angles_focus.to(device = 'cuda')
+        g.focus = data_dict['focus']
+ 
         return g
 
 
@@ -128,12 +138,12 @@ class CrystalGraphEnvMP(object):
     #         action_space=[self.action_space],
     #     )
 
-    def calc_reward(self, state):
+    def calc_reward(self):
         ase_obj = read(self.file_path)
         ase_obj.calc=Espresso(pseudopotentials=pseudodict,input_data=input_data, kpts=(3,3,3), label=pwo_path + '/espresso')
         ase_obj.get_total_energy()
-        output_path = 'espresso.out'
-        with open(file_path+'/'+output_path, 'r') as f:  
+        output_path = 'espresso.pwo'
+        with open(pwo_path+'/'+output_path, 'r') as f:  
             try:
                 lines = f.read()
                 tmp = lines.split('highest occupied, lowest unoccupied level (ev):')[1].split()
@@ -161,20 +171,31 @@ class CrystalGraphEnvMP(object):
         done = False
         reward = 0
         if self.index < self.n_sites:
-            curr_focus = state.focus[index] ## Check
-            state.ndata['atomic_number'][curr_focus][action] = 1
-            state.ndata['atomic_number'][curr_focus][-1] = 0
-            if action == torch.where(state.ndata['true_atomic_number'][self.index])[0]:
+
+            curr_focus = self.state.focus[self.index][0] ## Check
+
+            self.state.ndata['atomic_number'][curr_focus][action] = 1.
+            self.state.ndata['atomic_number'][curr_focus][-1] = 0.
+            if self.index + 1 < self.n_sites:
+                next_focus = self.state.focus[self.index+1][0]
+                self.state.ndata['atomic_number'][next_focus][-1] = 1.
+            else:
+                self.state.ndata['atomic_number'][-1] = 0.
+            if action == self.state.ndata['true_atomic_number'][self.index]:
                 self.ret += 1
-            reward = 0
+            reward = 0.
+            bg = None
+            energy = None
             self.index += 1 
         else:
             done = True
-            self.create_cif(state)
+            self.file_path = 'tmp.cif'
+            self.create_cif(self.state)
             reward, bg, energy = self.calc_reward()
             acc = self.ret / self.n_sites
         info = {}
-        self.state = self.converter.encode(state)
+
+        # self.state = self.converter.encode(state)
         return (self.state, reward, bg, energy, done)
 
     def create_cif(self, state):
@@ -182,22 +203,20 @@ class CrystalGraphEnvMP(object):
         n = self.n_sites
 
         ## GET ATOMIC NUMBERS AND CONVERT TO ATOM TYPES
-        atomic_number = state.ndata['atomic_number']
-        atomic_number = data[i].ndata['atomic_number'][:,:-2]
+        atomic_number = state.ndata['atomic_number'][:,:-2]
         atomic_number = torch.argmax(atomic_number, dim = 1)
         atom_types = [self.species_ind[int(atomic_number[i].cpu().numpy())] for i in range(atomic_number.shape[0])]
 
         ## GET POSITION
         coords = state.ndata['position']
         # GET STATE VARIABLES
-        laf = state.lengths_angles_focus[0]
+        laf = state.lengths_angles_focus
         lengths = laf[:3].tolist()
         angles = laf[3:6].tolist()
         lattice_params = lengths + angles
-        
         ## GET STRUCTURE
         canonical_crystal = Structure(lattice = Lattice.from_parameters(*lattice_params),
-                                    species = atom_types, coords = coords, coords_are_cartesian = True)
+                                    species = atom_types, coords = coords.cpu(), coords_are_cartesian = True)
 
         ## WRITE TO CIF FILE
         writer = CifWriter(canonical_crystal)
