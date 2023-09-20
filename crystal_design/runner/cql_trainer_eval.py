@@ -1353,12 +1353,12 @@ if __name__ == "__main__":
     # beta = args.beta
     # weight = args.weight
     args = sys.argv
-    model_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/cql_models/models_1/Run1-crystal-8cbeba69/checkpoint_500000.pt'
+    model_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/cql_models/models_1/Run1-crystal-2d61a690/checkpoint_500000.pt'
     # train(model_path = None, step = 0)
     # print(model_path)
     data_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/trajectories/val_mp_nonmetals_x1.pt'
-    save_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/runner/val_generated/nonmetals/VAL112megnet-MG-w5-(0-10-3).pt'
-    cif_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/cifs_nm/new/VAL112megnet-MG-w5-(0-10-3)'
+    save_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/runner/val_generated/nonmetals/VAL112megnet-MG-w1-(0-10-1).pt'
+    cif_path = '/home/mila/p/prashant.govindarajan/scratch/crystal_design_project/crystal-design/crystal_design/offline/cifs_nm/new/VAL112megnet-MG-w1-(0-10-1)'
     cql_eval(model_path=model_path, data_path=data_path, save_path = save_path, policy = None)
     print(model_path, save_path)
     to_cif(data_path=save_path, save_path = cif_path)
