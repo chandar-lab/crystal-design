@@ -9,7 +9,7 @@ from pathlib import Path
 import random
 import uuid
 from crystal_design.agents.bc_agent import EGNNAgentBC, MEGNetRL#, RandomAgent, GCNAgentBC, LinearAgentBC
-from crystal_design.utils import collate_function, collate_functionV2, collate_functionV3, collate_function_offline, collate_function_offline_eval, collate_function_megnet, collate_function_megnet_eval, collate_function_megnet_multigraphs, collate_function_megnet_multigraphs_torchRL, collate_function_megnet_multigraphs_eval
+from crystal_design.utils import collate_function_megnet_multigraphs_torchRL, collate_function_megnet_multigraphs_eval
 from torcheval.metrics import MulticlassPrecision, MulticlassRecall
 from sklearn.metrics import recall_score, precision_score
 # import d4rl
@@ -30,6 +30,7 @@ from p_tqdm import p_umap
 from crystal_design.utils.utils import cart_to_frac_coords
 from crystal_design.utils.compute_prop import Crystal, OptEval, GenEval
 import mendeleev
+from functools import partial
 import argparse
 
 TensorBatch = List[torch.Tensor]
@@ -267,12 +268,7 @@ class ReplayBufferCQL:
         raise NotImplementedError
 
 
-def set_seed(
-    seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False
-):
-    if env is not None:
-        env.seed(seed)
-        env.action_space.seed(seed)
+def set_seed(seed: int):
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -1081,7 +1077,7 @@ def train(config: TrainConfig, dict_ = None, model_path = None, step = 0):
     replay_buffer = ReplayBuffer(   #Initializing replay buffer
         storage=ListStorage(max_size=config.buffer_size),
         batch_size = config.batch_size,
-        collate_fn = collate_function_megnet_multigraphs_torchRL,
+        collate_fn = partial(collate_function_megnet_multigraphs_torchRL, si_bg = config.si_bg),
         pin_memory = True,
         prefetch = 32,
 
@@ -1110,7 +1106,7 @@ def train(config: TrainConfig, dict_ = None, model_path = None, step = 0):
 
     # Set seeds
     seed = config.seed
-    # set_seed(seed, env)
+    set_seed(seed)
 
     # critic_1 = FullyConnectedQFunction(state_dim, action_dim, config.orthogonal_init).to(
     #     config.device
