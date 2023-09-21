@@ -402,7 +402,7 @@ def collate_function_megnet_multigraphs(states, actions, rewards, bandgaps, next
     return g, actions, g_next, torch.tensor(rewards), torch.tensor(bandgaps), torch.tensor(dones)
 
 
-def collate_function_megnet_multigraphs_torchRL(batch):
+def collate_function_megnet_multigraphs_torchRL(batch, si_bg):
     
     batch_size = len(batch)
     atomic_number_list = [None] * batch_size
