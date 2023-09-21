@@ -5,5 +5,7 @@ To install, clone the `megnet` repository, and do the following step
 
 `git clone https://github.com/chandar-lab/crystal-design.git --branch megnet`
 
+`cd crystal-design`
+
 `pip install -e .`
 
