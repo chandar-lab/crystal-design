@@ -97,10 +97,8 @@ def smact_validity(comp, count,
                         tuple([elem_symbols, ox_states, ratio]))
     compositions = [(i[0], i[2]) for i in compositions]
     compositions = list(set(compositions))
-    if len(compositions) > 0:
-        return True
-    else:
-        return False
+    
+    return len(compositions) > 0
 
 class Crystal(object):
 

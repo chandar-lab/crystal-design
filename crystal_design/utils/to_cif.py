@@ -1,8 +1,5 @@
 import torch
-import numpy as np
 from pymatgen.core.structure import Structure
-from pymatgen.analysis import energy_models as em
-import pymatgen.io.cif as cif
 from tqdm import tqdm 
 from pymatgen.io.cif import CifWriter
 from pymatgen.core.lattice import Lattice
