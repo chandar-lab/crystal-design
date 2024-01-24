@@ -23,7 +23,7 @@ class EmbeddingBlockRL(EmbeddingBlock):
         include_state: bool = False,
         ntypes_state: int | None = None,
         dim_state_embedding: int | None = None,
-        device: str = 'cuda'
+        device: str = 'cuda',
     ):
         """
         Args:

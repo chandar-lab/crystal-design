@@ -10,28 +10,40 @@ In this work, we adopt conservative Q-learning, a popular offline reinforcement 
 ## Documentation
 ### Installation
 To install, clone the repository  
-
-`git clone https://github.com/chandar-lab/crystal-design.git`
-
-`cd crystal-design`
-
-`pip install -e .`
-
-`cd crystal_design`
+```
+git clone https://github.com/chandar-lab/crystal-design.git
+cd crystal-design
+pip install -e .
+cd crystal_design
+```
 
 ### Training 
 We use the `crystal_cql.py` in the `runner` folder for training and generation. Use this command for the list of arguments. 
-
-`python crystal_cql.py -h`
-
+```
+python crystal_cql.py -h
+```
 To train a conditional CQL model from scratch for 250000 steps, execute
-
-`python crystal_cql.py --data_path <path to trajectory data> --max_timesteps 250000`
-
+```
+python crystal_cql.py --data_path <path to trajectory data> --p_hat <target property> --max_timesteps 250000
+```
 To train an unconditional CQL model for 250000 steps, execute
 
-`python crystal_cql.py --data_path <path to trajectory data> --max_timesteps 250000 --nocondition True`
+```
+python crystal_cql.py --data_path <path to trajectory data> --max_timesteps 250000 --nocondition True
+```
 
 To train a behavioral cloning model for 250000 steps, execute
+```
+python crystal_cql.py --data_path <path to trajectory data> --max_timesteps 250000 --bc True --nocondition True
+```
+### Generating Crystals
 
-`python crystal_cql.py --data_path <path to trajectory data> --max_timesteps 250000 --bc True --nocondition True`
+To generate crystal using a learned model, whose checkpoint (`.pt`) is stored in a directory, follow the command
+```
+python crystal_cql.py --mode eval --model_path <path to checkpoint> --p_hat <target property>
+```
+
+A recommended way to do the same is to directly provide the path to the wandb run
+```
+python crystal_cql.py --mode eval --eval_wandb_path <path to wandb run>
+```

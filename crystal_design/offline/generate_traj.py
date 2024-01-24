@@ -3,14 +3,11 @@ import numpy as np
 import pandas as pd
 from crystal_design.utils.data_utils import build_crystal, build_crystal_dgl_graph, build_crystal_graph
 from dgl.traversal import bfs_nodes_generator
-import sys 
 import mendeleev
 import pickle
 from tqdm import tqdm
-import time
 from copy import deepcopy
 from torch.nn.functional import one_hot
-import time
 import warnings
 warnings.simplefilter('ignore')
 
@@ -33,7 +30,7 @@ N_ATOMS_PEROV = 5
 
 class OfflineTrajectories():
     def __init__(self, data, seed = 42, bfs_start = 0, sample_ind = 0, alpha = 1, beta = 0, reward_flag = True, graph_type = 'g'):
-        self.data = data #pd.read_csv(file_name)
+        self.data = data 
         self.n_vocab = len(ELEMENTS)
         self.sample_ind = sample_ind
         np.random.seed(seed)
@@ -99,90 +96,13 @@ class OfflineTrajectories():
     def ohe_to_atom_type(self, atom_types):
         atom_ind = torch.argmax(atom_types, dim = 1).tolist()
         atom_number = torch.tensor([SPECIES_IND[i] for i in atom_ind])
-        return atom_number
-
-
-    def step(self, eps = 0):
-        """
-        1. self.index stores the index
-        2. index the node and update its atom type
-        3. return updated state
-        4. If index reached maximum value, terminate and assign reward
-        self.state is a dgl graph object
-        """
-        done = False
-        reward = 0
-        if self.index < self.n_sites:
-            node = self.traversal[self.index]
-            r = np.random.rand()
-            if r < 1 - eps:
-                action = torch.where(self.state.ndata['true_atomic_number'][node])[0]
-                if self.graph_type == 'mg':
-                    action = self.state.ndata['true_atomic_number'][node]
-            else:
-                action = torch.random.choice(self.n_vocab)
-                self.state = deepcopy(self.state)
-            self.state.ndata['atomic_number'][node][action] = 1
-            self.state.ndata['atomic_number'][node][-1] = 0
-            if action == self.state.ndata['true_atomic_number'][node]:
-                self.ret += 1
-            reward = (0,None)
-            self.index += 1 
-            
-            if self.index == self.n_sites:
-                done = True
-                frac_reward = self.ret / self.n_sites
-                if self.reward_flag:
-                    energy_reward = 0 
-                else:
-                    energy_reward = 0
-                reward = (frac_reward, energy_reward)
-        info = {}
-        return (self.state, action, reward, done, None, info)
-
-def run_episode(offline, eps = 0):
-    obs = []
-    if offline.index == 0:
-        obs.append(deepcopy(offline.state))
-    for i in range(offline.n_sites):
-        # 0 - s1, a1
-        # 1 - s2, a2
-        # 2 - s3, a3
-        # 3 - s4, a4
-        # 4 - s5, a5
-        obs[-1].lengths_angles_focus = torch.cat([obs[-1].lengths_angles_focus, one_hot(offline.traversal[offline.index], 5)])
-        state, action, reward, done, _, info = offline.step(eps)
-        obs[-1].action = torch.tensor(action)
-        obs[-1].done = torch.tensor(done)
-        obs.append(deepcopy(state))
-    obs = obs[:-1]
-    return obs, reward
-
-def generate_data(file_name = '../data/mp_20/train.csv',
-                  save_path = 'trajectories/train_Eformx5.pt'):
-    trajectories_dict = {'data':[], 'rewards':[]}
-
-    data = pd.read_csv(file_name)
-    n_samples = data.shape[0]
-    for i in tqdm(range(n_samples)):
-        for j in range(N_ATOMS_PEROV):
-            offline_setup = OfflineTrajectories(data = data, bfs_start = j, sample_ind = i, reward_flag = (j == 0), graph_type = 'mg')
-            if offline_setup.err_flag == 1:
-                break
-            obs, reward = run_episode(offline_setup)
-            if j == 0:
-                trajectories_dict['rewards'].append(reward[-1])
-
-            trajectories_dict['data'] += obs
-    torch.save(trajectories_dict, save_path)
-
+        return atom_number      
 
 def ohe_to_atom_type(atom_types):
         atom_ind = torch.argmax(atom_types, dim = 1).tolist()
         atom_number = torch.tensor([SPECIES_IND[i] for i in atom_ind])
         return atom_number
     
-
 def run_episode_tensor(graph_object, prop, eps):
     observations = []
     actions = []

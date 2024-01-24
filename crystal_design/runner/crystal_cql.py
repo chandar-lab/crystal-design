@@ -219,7 +219,7 @@ class CrystalCQL:
 
         self.qnet_optimizer = qnet_optimizer
             
-        if model_path:
+        if model_path is not None and os.path.isfile(model_path):
             state_dict = torch.load(model_path)
             self.qnet.load_state_dict(state_dict['qnet1'])
             self.target_qnet.load_state_dict(state_dict['qnet1_target'])
@@ -433,7 +433,7 @@ def train(config: TrainConfig, step = 0):
     next_observations = dataset['next_observations']
     rewards = dataset['rewards']
     rewards = [torch.exp(-torch.tensor(r) / config.beta1) if r!= 0. else r for r in rewards]
-    bandgaps = np.array([0.] * len(rewards))
+    bandgaps =  np.array([0.] * len(rewards))
     tmp_ind = np.where(np.array(dataset['rewards']))[0]
     bandgaps[tmp_ind] = np.array(dataset['bandgaps'])
     terminals = dataset['terminals']
@@ -579,7 +579,6 @@ def cql_eval(config: TrainConfig, data_path, save_path, cif_path, policy = None,
         inds.append(batch.inds[0])
     
 
-    #### UNCOMMENT FOR VALIDITY ####
     opt_crys = p_map(lambda x: Crystal(x), state_dict_list, num_cpus = 16)
     valid = [crys.comp_valid for crys in opt_crys]
     print('Group: ', group)
@@ -587,9 +586,9 @@ def cql_eval(config: TrainConfig, data_path, save_path, cif_path, policy = None,
     obs_list = [obs_list[i] for i in range(len(obs_list)) if valid[i]]
     print(len(obs_list))
 
-    print('Final recons accuracy = ', torch.mean(torch.tensor(recons_acc_list)))
-    print('Final pred accuracy = ', torch.mean(torch.tensor(pred_accuracy_list)))
-    print('Final Category Accuracy = ', torch.mean(torch.tensor(cat_acc_list)))
+    print('Final recons accuracy = ', np.mean(recons_acc_list))
+    print('Final pred accuracy = ', np.mean(pred_accuracy_list))
+    print('Final Category Accuracy = ', np.mean(cat_acc_list))
 
     if not os.path.isdir(save_path):
         os.mkdir(save_path) 
