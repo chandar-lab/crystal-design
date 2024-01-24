@@ -7,7 +7,6 @@ import mendeleev
 import pickle
 from tqdm import tqdm
 from copy import deepcopy
-from torch.nn.functional import one_hot
 import warnings
 warnings.simplefilter('ignore')
 
@@ -124,7 +123,7 @@ def run_episode_tensor(graph_object, prop, eps):
         d['coordinates'] = deepcopy(graph_object.state.ndata['coords'])
         d['edges'] = graph_object.state.edges()
         d['etype'] = graph_object.state.edata['to_jimages']
-        d['laf'] = graph_object.state.lengths_angles_focus #torch.cat([graph_object.state.lengths_angles_focus, one_hot(traversal[i], n)])
+        d['laf'] = graph_object.state.lengths_angles_focus #torch.cat([graph_object.state.lengths_angles_focus, (traversal[i], n)])
         d['ind'] = graph_object.sample_ind
         observations.append(d)
         if r < 1 - eps:
@@ -177,8 +176,7 @@ def generate_trajectories_tensor(file_name, save_path, metals_prop, nonmetals_pr
             continue
         else:
             prop = nonmetals_prop[0][i][0], nonmetals_prop[1][i]
-        if True:
-            
+        if True:         
             for j in range(N_ATOMS_PEROV):
                 graph_object = OfflineTrajectories(data = data, bfs_start = j, sample_ind = i, reward_flag = (j == 0), graph_type = 'mg')
                 if graph_object.err_flag == 1:
