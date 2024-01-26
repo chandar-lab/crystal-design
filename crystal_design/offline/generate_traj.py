@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
-from crystal_design.utils.data_utils import build_crystal, build_crystal_dgl_graph, build_crystal_graph
+from crystal_design.utils.data_utils import build_crystal, build_crystal_graph
 from dgl.traversal import bfs_nodes_generator
 import mendeleev
 import pickle
@@ -62,26 +62,6 @@ class OfflineTrajectories():
             self.err_flag = 1
             return None
         self.traversal = torch.cat(list(bfs_nodes_generator(state, self.bfs_start)))
-        try:
-            assert len(self.traversal) == self.n_sites
-        except:
-            self.traversal = torch.tensor(list(range(self.n_sites)))
-            self.err_flag = 1
-        return state
-
-    def random_initial_state(self):
-        self.index = 0
-        self.ret = 0
-        cif_string = self.data.loc[self.sample_ind]['cif']
-        canonical_crystal = build_crystal(cif_string)
-        state = build_crystal_dgl_graph(canonical_crystal, SPECIES_IND_INV)
-        lengths = torch.tensor(canonical_crystal.lattice.abc)
-        angles = torch.tensor(canonical_crystal.lattice.angles)
-        state.lengths_angles_focus = torch.cat([lengths, angles])
-        self.n_sites = state.num_nodes()
-        self.history = []
-        self.traversal = torch.cat(list(bfs_nodes_generator(state, self.bfs_start)))
-        self.err_flag = 0
         try:
             assert len(self.traversal) == self.n_sites
         except:
@@ -176,21 +156,20 @@ def generate_trajectories_tensor(file_name, save_path, metals_prop, nonmetals_pr
             continue
         else:
             prop = nonmetals_prop[0][i][0], nonmetals_prop[1][i]
-        if True:         
-            for j in range(N_ATOMS_PEROV):
-                graph_object = OfflineTrajectories(data = data, bfs_start = j, sample_ind = i, reward_flag = (j == 0), graph_type = 'mg')
-                if graph_object.err_flag == 1:
-                    break
-                try:
-                    observations, actions, rewards, next_observations, bandgaps, terminals = run_episode_tensor(graph_object, prop, eps)
-                except:
-                    break
-                observations_list += (observations)
-                actions_list += (actions)
-                next_observations_list += next_observations
-                rewards_list += rewards
-                terminals_list += terminals
-                bandgaps_list += bandgaps
+        for j in range(N_ATOMS_PEROV):
+            graph_object = OfflineTrajectories(data = data, bfs_start = j, sample_ind = i, reward_flag = (j == 0), graph_type = 'mg')
+            if graph_object.err_flag == 1:
+                break
+            try:
+                observations, actions, rewards, next_observations, bandgaps, terminals = run_episode_tensor(graph_object, prop, eps)
+            except:
+                break
+            observations_list += (observations)
+            actions_list += (actions)
+            next_observations_list += next_observations
+            rewards_list += rewards
+            terminals_list += terminals
+            bandgaps_list += bandgaps
         
     d = {'observations': observations_list, 'actions': actions_list, 'next_observations': next_observations_list, 
         'rewards': rewards_list, 'bandgaps':bandgaps_list, 'terminals': terminals_list}
