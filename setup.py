@@ -25,4 +25,3 @@ setuptools.setup(
     ],
     packages=['crystal_design']
 )
-
