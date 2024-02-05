@@ -3,29 +3,14 @@ import numpy as np
 import pandas as pd
 from crystal_design.utils.data_utils import build_crystal, build_crystal_graph
 from dgl.traversal import bfs_nodes_generator
-import mendeleev
 import pickle
 from tqdm import tqdm
 from copy import deepcopy
 import warnings
 warnings.simplefilter('ignore')
+from crystal_design.utils.variables import ELEMENTS, SPECIES_IND_INV, SPECIES_IND
 
-ELEMENTS = ['Cs', 'Er', 'Xe', 'Tc', 'Eu', 'Gd', 'Li', 'Hf', 'Dy', 'F', 'Te', 'Ti', 'Hg', 'Bi', 'Pr', 'Ne', 'Sm', 'Be', 'Au', 'Pb', 'C', 'Zr', 'Ir', 'Pd', 'Sc', 'Yb', 'Os', 'Nb', 'Ac', 'Rb', 'Al', 'P', 'Ga', 'Na', 'Cr', 'Ta', 'Br', 'Pu', 'Ge', 'Tb', 'La', 'Se', 'V', 'Pa', 'Ni', 'In', 'Cu', 'Fe', 'Co', 'Pm', 'N', 'K', 'Ca', 'Rh', 'B', 'Tm', 'I', 'Ho', 'Sb', 'As', 'Tl', 'Ru', 'U', 'Np', 'Cl', 'Re', 'Ag', 'Ba', 'H', 'O', 'Mg', 'W', 'Sn', 'Mo', 'Pt', 'Zn', 'Sr', 'S', 'Kr', 'Cd', 'Si', 'Y', 'Lu', 'Th', 'Nd', 'Mn', 'He', 'Ce']
-
-TRANSITION_METALS = ['Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg']
-LANTHANIDES = ['La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu']
-ACTINIDES = ['Ac', 'Th', 'Pa', 'U', 'Np', 'Pu']
-NOBLE = ['Xe', 'Ne', 'Kr', 'He']
-HALOGENS = ['F', 'Br', 'Cl', 'I']
-G1 = ['Li', 'Na', 'K', 'Rb', 'Cs']
-G2 = ['Be', 'Mg', 'Ca', 'Sr', 'Ba']
-NONMETALS = ['H','B', 'C', 'N', 'O', 'Si', 'P', 'S', 'As', 'Se', 'Te']
-POST_TRANSITION_METALS = ['Al', 'Ga', 'Ge', 'In', 'Sn', 'Sb', 'Tl', 'Pb', 'Bi']
-
-
-SPECIES_IND = {i:mendeleev.element(ELEMENTS[i]).atomic_number for i in range(len(ELEMENTS))}
-SPECIES_IND_INV = {mendeleev.element(ELEMENTS[i]).atomic_number:i for i in range(len(ELEMENTS))}
-N_ATOMS_PEROV = 5
+N_TRAJ = 5
 
 class OfflineTrajectories():
     def __init__(self, data, seed = 42, bfs_start = 0, sample_ind = 0, alpha = 1, beta = 0, reward_flag = True, graph_type = 'g'):
@@ -156,7 +141,7 @@ def generate_trajectories_tensor(file_name, save_path, metals_prop, nonmetals_pr
             continue
         else:
             prop = nonmetals_prop[0][i][0], nonmetals_prop[1][i]
-        for j in range(N_ATOMS_PEROV):
+        for j in range(N_TRAJ):
             graph_object = OfflineTrajectories(data = data, bfs_start = j, sample_ind = i, reward_flag = (j == 0), graph_type = 'mg')
             if graph_object.err_flag == 1:
                 break

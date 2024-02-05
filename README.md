@@ -43,7 +43,7 @@ To generate crystal using a learned model, whose checkpoint (`.pt`) is stored in
 python crystal_cql.py --mode eval --model_path <path to checkpoint> --p_hat <target property>
 ```
 
-A recommended way to do the same is to directly provide the path to the wandb run
+A recommended way to do the same is to directly provide the path to the wandb run, in which case it will run the checkpoint file named `checkpoint_250000.pt` (this can be modified)
 ```
-python crystal_cql.py --mode eval --eval_wandb_path <path to wandb run>
+python crystal_cql.py --mode eval --eval_wandb_path <path to wandb run> --no_condition <True/False>
 ```

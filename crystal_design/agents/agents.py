@@ -46,7 +46,7 @@ class EmbeddingBlockRL(EmbeddingBlock):
         self.ntypes_node = ntypes_node
         self.dim_state_embedding = dim_state_embedding
         self.activation = activation
-        if ntypes_state and dim_state_embedding is not None:
+        if ntypes_state is not None and dim_state_embedding is not None:
             self.layer_state_embedding = nn.Embedding(ntypes_state, dim_state_embedding, device = device)  # type: ignore
         if ntypes_node is not None:
             self.layer_node_embedding = nn.Embedding(ntypes_node, dim_node_embedding, device = device)
@@ -77,7 +77,7 @@ class EmbeddingBlockRL(EmbeddingBlock):
         else:
             edge_feat = edge_attr
         if self.include_state is True:
-            if self.ntypes_state and self.dim_state_embedding is not None:
+            if self.ntypes_state is not None and self.dim_state_embedding is not None:
                 state_feat = self.layer_state_embedding(state_attr)
             elif self.dim_state_feats is not None:
                 state_attr = torch.unsqueeze(state_attr, 0)
@@ -164,9 +164,7 @@ class MEGNetRL(MEGNet, nn.Module, IOMixIn):
             state_feat = state_feat[:,:-1]
         edge_feat = self.bond_expansion(edge_feat)
         node_feat = node_feat.to(dtype = torch.int64)
-        focus_feat = torch.split(node_feat[:,-1], graph.batch_num_nodes().cpu().tolist())
-        focus_feat = torch.tensor([torch.where(f)[0][0] if torch.where(f)[0].size()[0] else 20 for f in focus_feat]).to(device = 'cuda')
-        node_feat = torch.argmax(node_feat[:,:-1], dim = 1)
+        focus_feat = graph.focus 
         node_feat, edge_feat, focus_feat = self.embedding(node_feat, edge_feat, focus_feat)
         edge_feat = self.edge_encoder(edge_feat.to(dtype = torch.float32))
         node_feat = self.node_encoder(node_feat)

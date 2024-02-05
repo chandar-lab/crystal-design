@@ -24,6 +24,9 @@ def get_pbc_distances(
     return_offsets=False,
     return_distance_vec=False,
 ):
+    """
+    Source: https://github.com/txie-93/cdvae/tree/main/cdvae
+    """
     lattice = lattice_params_to_matrix_torch(lengths, angles)
 
     if coord_is_cart:
@@ -73,65 +76,11 @@ def build_crystal(crystal_str, niggli=True, primitive=False):
         coords=crystal.frac_coords,
         coords_are_cartesian=False,
     )
-    # match is gaurantteed because cif only uses lattice params & frac_coords
-    # assert canonical_crystal.matches(crystal)
     return canonical_crystal
 
-def build_crystal_dgl_graph(crystal, species_ind, graph_method='crystalnn'):
-    """
-    """
-    if graph_method == 'crystalnn':
-        crystal_graph = StructureGraph.with_local_env_strategy(crystal, CrystalNN)
-    elif graph_method == 'none':
-        pass
-    else:
-        raise NotImplementedError
-
-    atom_types = crystal.atomic_numbers
-    atom_types = np.array(atom_types)
-    lattice_parameters = crystal.lattice.parameters
-    lengths = lattice_parameters[:3]
-    angles = lattice_parameters[3:]
-    num_atoms = atom_types.shape[0]
-    coords = frac_to_cart_coords(crystal.frac_coords, lengths, angles, num_atoms)
-    # assert np.allclose(crystal.lattice.matrix,
-    #                    lattice_params_to_matrix(*lengths, *angles))
-
-    lengths, angles = np.array(lengths), np.array(angles)
-
-    g = dgl.DGLGraph().to(device = 'cuda:0')
-    g.add_nodes(num_atoms)
-    atom_types_ind = torch.tensor([species_ind[i] for i in atom_types])
-    # atom_types_ohe = np.zeros((len(atom_types_ind), 56 + 1))
-    # atom_types_ohe[np.arange(atom_types.size), atom_types_ind] = 1.
-    g.ndata['atomic_number'] = torch.zeros((num_atoms, 57)).to(device = 'cuda:0')
-    g.ndata['atomic_number'][:, -1] = 1
-    g.ndata['true_atomic_number'] = F.one_hot(atom_types_ind, num_classes = 57).to(device = 'cuda:0')  ## 56 vocab size + 1 blank slot 
-    g.ndata['position'] = torch.tensor(coords).to(device = 'cuda:0')
-    g.ndata['frac_coords'] = torch.tensor(crystal.frac_coords).to(device = 'cuda:0')
-    # g.ndata['lengths'] = lengths
-    # g.ndata['angles'] = angles
-    # g.ndata['lattice'] = np.array([lengths, angles])
-
-    edge_indices, to_jimages = [], []
-    if graph_method != 'none':
-        for i, j, to_jimage in crystal_graph.graph.edges(data='to_jimage'):
-            if not np.where(to_jimage)[0].size:
-                g.add_edge(i,j)
-                g.add_edge(j,i)
-                edge_indices.append([j, i])
-                ## For multigraphs
-                # to_jimages.append(to_jimage)  
-                edge_indices.append([i, j])
-                # to_jimages.append(tuple(-tj for tj in to_jimage))
-
-
-    # edge_indices = np.array(edge_indices)
-    # to_jimages = np.array(to_jimages)
-    
-    return g #frac_coords, atom_types, lengths, angles, edge_indices, to_jimages, num_atoms
 def build_crystal_graph(crystal, species_ind, graph_method='crystalnn'):
     """
+    Source: https://github.com/txie-93/cdvae/tree/main/cdvae
     """
 
     if graph_method == 'crystalnn':
@@ -173,12 +122,12 @@ def build_crystal_graph(crystal, species_ind, graph_method='crystalnn'):
     g.ndata['atomic_number'] = torch.zeros((num_atoms, 89))#.to(device = 'cuda:0')
     g.ndata['atomic_number'][:, -1] = 1
     g.ndata['true_atomic_number'] = torch.tensor(true_atom_types) #.to(device = 'cuda:0')  ## 56 vocab size + 1 blank slot 
-    # g.ndata['frac_coords'] = torch.tensor(frac_coords)#.to(device = 'cuda:0')
     g.ndata['coords'] = torch.tensor(coords)
     g.add_edges(edge_indices[:,0], edge_indices[:,1])
     g.edata['to_jimages'] = torch.tensor(to_jimages)
 
-    return g #frac_coords, true_atom_types, lengths, angles, edge_indices, to_jimages, num_atoms
+    return g 
+
 def frac_to_cart_coords(
     frac_coords,
     lengths,
@@ -192,7 +141,9 @@ def frac_to_cart_coords(
     return pos
 
 def lattice_params_to_matrix(a, b, c, alpha, beta, gamma):
-    """Converts lattice from abc, angles to matrix.
+    """
+    Source: https://github.com/txie-93/cdvae/tree/main/cdvae
+    Converts lattice from abc, angles to matrix.
     https://github.com/materialsproject/pymatgen/blob/b789d74639aa851d7e5ee427a765d9fd5a8d1079/pymatgen/core/lattice.py#L311
     """
     angles_r = np.radians([alpha, beta, gamma])
@@ -215,6 +166,7 @@ def lattice_params_to_matrix(a, b, c, alpha, beta, gamma):
 
 def abs_cap(val, max_abs_val=1):
     """
+    Source: https://github.com/txie-93/cdvae/tree/main/cdvae
     Returns the value with its absolute value capped at max_abs_val.
     Particularly useful in passing values to trignometric functions where
     numerical errors may result in an argument > 1 being passed in.

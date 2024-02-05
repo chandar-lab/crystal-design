@@ -11,6 +11,12 @@ SPECIES_IND = {i:mendeleev.element(ELEMENTS[i]).atomic_number for i in range(len
 SPECIES_IND_INV = {mendeleev.element(ELEMENTS[i]).atomic_number:i for i in range(len(ELEMENTS))}
 
 def to_cif(data_path, save_path):
+    """
+    Converts crystal graphs to CIF files
+    Arguments: 
+    data_path : path to file containing graphs
+    save_path : directory to store CIF files
+    """
     data = torch.load(data_path) 
     try:
         os.mkdir(save_path)
