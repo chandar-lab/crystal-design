@@ -27,7 +27,6 @@ def to_cif(data_path, save_path):
     j = 0
 
     for i in tqdm(range(N)):
-        num_atoms = int(data[i].ndata['atomic_number'].shape[0])
         laf = data[i].lengths_angles_focus[0]
         lengths = laf[:3].tolist()
         angles = laf[3:6].tolist()
@@ -37,7 +36,6 @@ def to_cif(data_path, save_path):
         ind = data[i].inds
         atom_types = [SPECIES_IND[int(atomic_number[i].cpu().numpy())] for i in range(atomic_number.shape[0])]
         coords = data[i].ndata['position'].cpu().numpy()
-        j += num_atoms
         canonical_crystal = Structure(lattice = Lattice.from_parameters(*lattice_params),
                                     species = atom_types, coords = coords, coords_are_cartesian = True)
         writer = CifWriter(canonical_crystal)
