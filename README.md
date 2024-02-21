@@ -13,6 +13,7 @@ To install, clone the repository
 ```
 git clone https://github.com/chandar-lab/crystal-design.git
 cd crystal-design
+pip install -r requirements.txt
 pip install -e .
 cd crystal_design
 ```

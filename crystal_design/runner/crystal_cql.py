@@ -35,7 +35,7 @@ PAD_SEQ = -10000
 class Config:
     # Experiment
     device: str = "cuda"
-    data_path: str = "../offline/trajectories/train_Eformx5_small.pt"
+    data_path: str = "../offline/trajectories/train_Eformx5_small.pt" # path to trajectory data
     env: str = "crystal"  # environment name
     seed: int = 0  # random seed
     num_timesteps: int = int(2e5)   # Number of time steps
@@ -322,24 +322,13 @@ class CrystalCQL:
         
         atomic_number = deepcopy(observations.ndata['atomic_number'])   ### Nodes X (D + 2)
         index_curr_focus = observations.focus
-        # index_curr_focus = torch.where(curr_focus)[0]
         n = index_curr_focus.shape[0]
         try:
             t = pred_actions.shape[0]
         except:
             t = 1
-        # atomic_number[-1][index_curr_focus] = 0.  
-        # try:
-        #     atomic_number[index_curr_focus] = pred_actions[t-n:]
-        # except:
         atomic_number[index_curr_focus] = pred_actions
         next_focus = batch_focus[:,step]
-        # cum_sum_nsites = torch.cat((torch.tensor([0]), torch.cumsum(n_sites, dim = 0)[:-1]))
-        # next_focus = next_focus + cum_sum_nsites
-        # next_focus = next_focus[torch.where(next_focus >= 0)[0]]
-        # current_focus = observations.focus
-        # atomic_number[:, -1][current_focus] = 0.
-        # atomic_number[:, -1][next_focus] = 1.
         observations.focus = next_focus.to(device = self.device)
         observations.ndata['atomic_number'] = atomic_number
 

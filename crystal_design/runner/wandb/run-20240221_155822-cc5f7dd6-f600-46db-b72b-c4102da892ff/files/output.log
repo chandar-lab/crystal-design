@@ -1,0 +1,39 @@
+[34m[1mwandb[39m[22m: [33mWARNING[39m Calling wandb.run.save without any arguments is deprecated.Changes to attributes are automatically persisted.
+  0%|                                                                                 | 0/200000 [00:00<?, ?it/s]
+> /network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/agents/agents.py(171)forward()
+-> edge_feat = self.bond_expansion(edge_feat.cpu()).to(device = self.device)
+device(type='cuda', index=0)
+device(type='cpu')
+tensor([[0.0005],
+        [0.0005],
+        [0.0005],
+        ...,
+        [0.0452],
+        [0.0200],
+        [0.0200]], dtype=torch.float64)
+> /network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/agents/agents.py(172)forward()
+  0%|                                                                                 | 0/200000 [02:10<?, ?it/s]
+Traceback (most recent call last):
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 643, in <module>
+    config = train()
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/pyrallis/argparsing.py", line 158, in wrapper_inner
+    response = fn(cfg, *args, **kwargs)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 497, in train
+    log_dict = trainer.train(batch)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 368, in train
+    qf_loss, pred_actions = self._q_loss(
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 227, in _q_loss
+    q1_all = self.qnet(observations,observations.edata['e_feat'], observations.ndata['atomic_number'], observations.lengths_angles_focus)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/agents/agents.py", line 172, in forward
+    node_feat = node_feat.to(dtype = torch.int64)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/agents/agents.py", line 172, in forward
+    node_feat = node_feat.to(dtype = torch.int64)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/bdb.py", line 90, in trace_dispatch
+    return self.dispatch_line(frame)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/bdb.py", line 115, in dispatch_line
+    if self.quitting: raise BdbQuit
+bdb.BdbQuit

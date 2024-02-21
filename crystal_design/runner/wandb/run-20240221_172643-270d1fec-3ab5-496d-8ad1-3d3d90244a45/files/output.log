@@ -1,0 +1,52 @@
+[34m[1mwandb[39m[22m: [33mWARNING[39m Calling wandb.run.save without any arguments is deprecated.Changes to attributes are automatically persisted.
+  0%|                                                                                 | 0/200000 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 643, in <module>
+    config = train()
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/pyrallis/argparsing.py", line 158, in wrapper_inner
+    response = fn(cfg, *args, **kwargs)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 497, in train
+    log_dict = trainer.train(batch)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 368, in train
+    qf_loss, pred_actions = self._q_loss(
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/runner/crystal_cql.py", line 227, in _q_loss
+    q1_all = self.qnet(observations,observations.edata['e_feat'], observations.ndata['atomic_number'], observations.lengths_angles_focus)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/crystal-design/crystal_design/agents/agents.py", line 147, in forward
+    output = block(graph, edge_feat, node_feat, state_feat)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/matgl/src/matgl/layers/_graph_convolution.py", line 217, in forward
+    edge_feat, node_feat, state_feat = self.conv(graph, edge_feat, node_feat, state_feat)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/matgl/src/matgl/layers/_graph_convolution.py", line 139, in forward
+    edge_feat = self.edge_update_(graph)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/matgl/src/matgl/layers/_graph_convolution.py", line 77, in edge_update_
+    graph.apply_edges(self._edge_udf)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/dgl/heterograph.py", line 4700, in apply_edges
+    edata = core.invoke_edge_udf(g, eid, etype, func)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/dgl/core.py", line 96, in invoke_edge_udf
+    return func(ebatch)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/matgl/src/matgl/layers/_graph_convolution.py", line 65, in _edge_udf
+    mij = {"mij": self.edge_func(inputs)}
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/network/scratch/p/prashant.govindarajan/crystal_design_project/matgl/src/matgl/layers/_core.py", line 91, in forward
+    x = layer(x)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/mila/p/prashant.govindarajan/.conda/envs/csd/lib/python3.10/site-packages/torch/nn/modules/linear.py", line 114, in forward
+    return F.linear(input, self.weight, self.bias)
+RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cpu and cuda:0! (when checking argument for argument mat1 in method wrapper_CUDA_addmm)
