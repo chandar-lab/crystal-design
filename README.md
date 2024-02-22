@@ -17,7 +17,7 @@ pip install -r requirements.txt
 pip install -e .
 cd crystal_design
 ```
-
+If `dgl` installation fails, please refer [https://www.dgl.ai/pages/start.html](https://www.dgl.ai/pages/start.html).
 ### Training 
 We use the `crystal_cql.py` in the `runner` folder for training and generation. Use this command for the list of arguments. 
 ```
