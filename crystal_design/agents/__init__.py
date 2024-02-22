@@ -1,3 +1,3 @@
-__all__ = ["EmbeddingBlockRL", "MEGNetRL"]
+__all__ = ["EmbeddingBlockDev", "MEGNetRL"]
 
-from crystal_design.agents.agents import EmbeddingBlockRL, MEGNetRL
+from crystal_design.agents.agents import EmbeddingBlockDev, MEGNetRL

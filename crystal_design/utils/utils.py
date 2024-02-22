@@ -13,6 +13,7 @@ def lattice_params_to_matrix_torch(lengths, angles):
 
     lengths: torch.Tensor of shape (N, 3), unit A
     angles: torch.Tensor of shape (N, 3), unit degree
+    Source: https://github.com/txie-93/cdvae/tree/main/cdvae
     """
     angles_r = torch.deg2rad(angles)
     coses = torch.cos(angles_r)
@@ -50,6 +51,9 @@ def get_pbc_distances(
     return_offsets=False,
     return_distance_vec=False,
 ):
+    """
+    Source: https://github.com/txie-93/cdvae/tree/main/cdvae
+    """
     lattice = lattice_params_to_matrix_torch(lengths, angles)
 
     if coord_is_cart:
@@ -84,7 +88,7 @@ def get_pbc_distances(
     return out
 
 
-def collate_function(batch, si_bg):
+def collate_function(batch, p_hat):
     
     batch_size = len(batch)
     atomic_number_list = [None] * batch_size
@@ -98,21 +102,23 @@ def collate_function(batch, si_bg):
     n_atoms_list = []
     n_edges_list = []
     action_list = []
-    ind_list = []
     atomic_number_list_next = [None] * batch_size
     num_edges = []
     reward_list = []
     bandgap_list = []
     dones_list = []
+    focus_list = []
+    focus_list_next = []
 
     for i in range(batch_size):
         data_dict = batch[i]
         observation, action, next_observation, reward, bandgap, done = data_dict
-        atomic_number_list[i] = observation['atomic_number']
-        n_atoms = observation['atomic_number'].shape[0]
+        atomic_number_list[i] = observation['atomic_number'][:-1]
+        focus_list.append(observation['atomic_number'][-1])
+        n_atoms = observation['atomic_number'].shape[0] - 1
         true_atomic_number_list[i] = observation['true_atomic_number']
         position_list[i] = observation['coordinates']
-        laf_list[i] = torch.cat((observation['laf'], torch.tensor([si_bg]))) 
+        laf_list[i] = torch.cat((observation['laf'], torch.tensor([p_hat]))) 
         edges_u_single =  observation['edges'][0] + sum_n_atoms
         edges_v_single =  observation['edges'][1] + sum_n_atoms
         edges_cat = torch.cat([edges_u_single[:,None], edges_v_single[:,None]], dim = 1)
@@ -129,27 +135,30 @@ def collate_function(batch, si_bg):
         bandgap_list.append(bandgap)
         dones_list.append(done)
 
-        atomic_number_list_next[i] = next_observation['atomic_number']
+        atomic_number_list_next[i] = next_observation['atomic_number'][:-1]
+        focus_list_next.append(next_observation['atomic_number'][-1])
     edges_cat = torch.cat([torch.cat(edges_u)[:,None], torch.cat(edges_v)[:,None]], dim = 1)
     to_jimages = torch.cat(to_jimages, dim = 0)
     position = torch.cat(position_list, dim = 0)
     laf_list = torch.stack(laf_list)
     out = get_pbc_distances(position, edges_cat, lengths = laf_list[:,:3], angles = laf_list[:,3:6], to_jimages = to_jimages, 
                             num_atoms = n_atoms_list, num_bonds=num_edges, coord_is_cart=True)
-    edata = out['distances'] #torch.norm(position[edges_cat[:,0]] - position[edges_cat[:,1]], dim = 1)
-    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    edata = out['distances'] 
+    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)
     g.ndata['atomic_number'] = torch.cat(atomic_number_list, dim = 0)
+    g.focus = torch.stack(focus_list)
     g.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
-    g.lengths_angles_focus = laf_list#.cuda()
+    g.lengths_angles_focus = laf_list
     g.edata['e_feat'] = edata
     g.set_batch_num_nodes(torch.tensor(n_atoms_list))
     g.set_batch_num_edges(torch.tensor(n_edges_list))
 
-    g_next = dgl.graph(data = torch.unbind((edges_cat), dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g_next = dgl.graph(data = torch.unbind((edges_cat), dim = 1), num_nodes = sum_n_atoms)
     g_next.ndata['atomic_number'] = torch.cat(atomic_number_list_next, dim = 0)
+    g_next.focus = torch.stack(focus_list_next)
     g_next.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
     g_next.ndata['position'] = torch.cat(position_list, dim = 0)
-    g_next.lengths_angles_focus = laf_list#.cuda()
+    g_next.lengths_angles_focus = laf_list
     g_next.edata['e_feat'] = edata
     g_next.set_batch_num_nodes(torch.tensor(n_atoms_list))
     g_next.set_batch_num_edges(torch.tensor(n_edges_list))
@@ -157,7 +166,7 @@ def collate_function(batch, si_bg):
     return g, torch.tensor(action_list), g_next, torch.tensor(reward_list), torch.tensor(bandgap_list), torch.tensor(dones_list)
 
 
-def collate_function_eval(batch, si_bg):
+def collate_function_eval(batch, p_hat):
 
     batch_size = len(batch)
     atomic_number_list = [None] * batch_size
@@ -177,15 +186,18 @@ def collate_function_eval(batch, si_bg):
     reward_list = []
     bandgap_list = []
     dones_list = []
+    focus_list = []
+    focus_list_next = []
 
     for i in range(batch_size):
         data_dict = batch[i]
         observation, action, next_observation, reward, done = data_dict
-        atomic_number_list[i] = observation['atomic_number']
-        n_atoms = observation['atomic_number'].shape[0]
+        atomic_number_list[i] = observation['atomic_number'][:-1]
+        focus_list.append(observation['atomic_number'][-1])
+        n_atoms = observation['atomic_number'].shape[0] - 1
         true_atomic_number_list[i] = observation['true_atomic_number']
         position_list[i] = observation['coordinates']
-        laf_list[i] = torch.cat((observation['laf'], torch.tensor([si_bg]))) #data_dict['laf'] #torch.cat((data_dict['laf'], torch.zeros(494-n_atoms)))
+        laf_list[i] = torch.cat((observation['laf'], torch.tensor([p_hat]))) 
         edges_u_single =  observation['edges'][0] + sum_n_atoms
         edges_v_single =  observation['edges'][1] + sum_n_atoms
         edges_cat = torch.cat([edges_u_single[:,None], edges_v_single[:,None]], dim = 1)
@@ -202,29 +214,32 @@ def collate_function_eval(batch, si_bg):
         reward_list.append(reward)
         dones_list.append(done)
 
-        atomic_number_list_next[i] = next_observation['atomic_number']
+        atomic_number_list_next[i] = next_observation['atomic_number'][:-1]
+        focus_list_next.append(next_observation['atomic_number'][-1])
     edges_cat = torch.cat([torch.cat(edges_u)[:,None], torch.cat(edges_v)[:,None]], dim = 1)
     to_jimages = torch.cat(to_jimages, dim = 0)
     position = torch.cat(position_list, dim = 0)
     laf_list = torch.stack(laf_list)
     out = get_pbc_distances(position, edges_cat, lengths = laf_list[:,:3], angles = laf_list[:,3:6], to_jimages = to_jimages, 
                             num_atoms = n_atoms_list, num_bonds=num_edges, coord_is_cart=True)
-    edata = out['distances'] #torch.norm(position[edges_cat[:,0]] - position[edges_cat[:,1]], dim = 1)
-    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    edata = out['distances'] 
+    g = dgl.graph(data = torch.unbind(edges_cat, dim = 1), num_nodes = sum_n_atoms)
     g.ndata['atomic_number'] = torch.cat(atomic_number_list, dim = 0)
     g.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
     g.ndata['position'] = torch.cat(position_list, dim = 0)
-    g.lengths_angles_focus = laf_list#.cuda()
+    g.lengths_angles_focus = laf_list
     g.edata['e_feat'] = edata
     g.set_batch_num_nodes(torch.tensor(n_atoms_list))
     g.set_batch_num_edges(torch.tensor(n_edges_list))
+    g.focus = torch.stack(focus_list)
     g.inds = torch.tensor(ind_list)
 
-    g_next = dgl.graph(data = torch.unbind((edges_cat), dim = 1), num_nodes = sum_n_atoms)#.to(device='cpu')
+    g_next = dgl.graph(data = torch.unbind((edges_cat), dim = 1), num_nodes = sum_n_atoms)
     g_next.ndata['atomic_number'] = torch.cat(atomic_number_list_next, dim = 0)
     g_next.ndata['true_atomic_number'] = torch.cat(true_atomic_number_list, dim = 0)
     g_next.ndata['position'] = torch.cat(position_list, dim = 0)
-    g_next.lengths_angles_focus = laf_list#.cuda()
+    g_next.focus = torch.stack(focus_list_next)
+    g_next.lengths_angles_focus = laf_list
     g_next.edata['e_feat'] = edata
     g_next.set_batch_num_nodes(torch.tensor(n_atoms_list))
     g_next.set_batch_num_edges(torch.tensor(n_edges_list))
@@ -238,6 +253,10 @@ def cart_to_frac_coords(
     angles,
     num_atoms,
 ):
+    """
+    Cartesan to fractional coordinates
+    Source: https://github.com/txie-93/cdvae/tree/main/cdvae
+    """
     lattice = lattice_params_to_matrix_torch(lengths, angles)
     # use pinv in case the predicted lattice is not rank 3
     inv_lattice = torch.linalg.pinv(lattice)
@@ -246,35 +265,17 @@ def cart_to_frac_coords(
     return (frac_coords % 1.)
 
 
-def lattice_params_to_matrix_torch(lengths, angles):
-    """Batched torch version to compute lattice matrix from params.
+def create_sublists(A, B):
+    output = []
+    start_index = 0
 
-    lengths: torch.Tensor of shape (N, 3), unit A
-    angles: torch.Tensor of shape (N, 3), unit degree
-    """
-    angles_r = torch.deg2rad(angles)
-    coses = torch.cos(angles_r)
-    sins = torch.sin(angles_r)
+    for num_items in B:
+        sublist = torch.tensor(A[start_index:start_index+num_items.numpy()])
+        output.append(sublist)
+        start_index += num_items
 
-    val = (coses[:, 0] * coses[:, 1] - coses[:, 2]) / (sins[:, 0] * sins[:, 1])
-    # Sometimes rounding errors result in values slightly > 1.
-    val = torch.clamp(val, -1., 1.)
-    gamma_star = torch.arccos(val)
+    return output
 
-    vector_a = torch.stack([
-        lengths[:, 0] * sins[:, 1],
-        torch.zeros(lengths.size(0), device=lengths.device),
-        lengths[:, 0] * coses[:, 1]], dim=1)
-    vector_b = torch.stack([
-        -lengths[:, 1] * sins[:, 0] * torch.cos(gamma_star),
-        lengths[:, 1] * sins[:, 0] * torch.sin(gamma_star),
-        lengths[:, 1] * coses[:, 0]], dim=1)
-    vector_c = torch.stack([
-        torch.zeros(lengths.size(0), device=lengths.device),
-        torch.zeros(lengths.size(0), device=lengths.device),
-        lengths[:, 2]], dim=1)
-
-    return torch.stack([vector_a, vector_b, vector_c], dim=1)
 
 
     

@@ -143,10 +143,7 @@ class Crystal(object):
 
     def get_validity(self):
         self.comp_valid = smact_validity(self.elems, self.comps)
-        if self.constructed:
-            self.struct_valid = True #structure_validity(self.structure)
-        else:
-            self.struct_valid = False
+        self.struct_valid = self.constructed
         self.valid = self.comp_valid and self.struct_valid
 
     def get_fingerprints(self):

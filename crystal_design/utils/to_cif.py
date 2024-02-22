@@ -11,6 +11,12 @@ SPECIES_IND = {i:mendeleev.element(ELEMENTS[i]).atomic_number for i in range(len
 SPECIES_IND_INV = {mendeleev.element(ELEMENTS[i]).atomic_number:i for i in range(len(ELEMENTS))}
 
 def to_cif(data_path, save_path):
+    """
+    Converts crystal graphs to CIF files
+    Arguments: 
+    data_path : path to file containing graphs
+    save_path : directory to store CIF files
+    """
     data = torch.load(data_path) 
     try:
         os.mkdir(save_path)
@@ -21,7 +27,6 @@ def to_cif(data_path, save_path):
     j = 0
 
     for i in tqdm(range(N)):
-        num_atoms = int(data[i].ndata['atomic_number'].shape[0])
         laf = data[i].lengths_angles_focus[0]
         lengths = laf[:3].tolist()
         angles = laf[3:6].tolist()
@@ -29,9 +34,8 @@ def to_cif(data_path, save_path):
         atomic_number = data[i].ndata['atomic_number'][:,:-2]
         atomic_number = torch.argmax(atomic_number, dim = 1)
         ind = data[i].inds
-        atom_types = [SPECIES_IND[int(atomic_number[i].cpu().numpy())] for i in range(atomic_number.shape[0])]
+        atom_types = [SPECIES_IND[int(atomic_number[j].cpu().numpy())] for j in range(atomic_number.shape[0])]
         coords = data[i].ndata['position'].cpu().numpy()
-        j += num_atoms
         canonical_crystal = Structure(lattice = Lattice.from_parameters(*lattice_params),
                                     species = atom_types, coords = coords, coords_are_cartesian = True)
         writer = CifWriter(canonical_crystal)

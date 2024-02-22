@@ -8,8 +8,9 @@ import torch
 from torch import nn
 from matgl.layers import EmbeddingBlock, MLP
 
+NUM_ACTIONS = 88
 
-class EmbeddingBlockRL(EmbeddingBlock):
+class EmbeddingBlockDev(EmbeddingBlock):
     """Embedding block for generating node, bond and state features."""
 
     def __init__(
@@ -37,57 +38,21 @@ class EmbeddingBlockRL(EmbeddingBlock):
             ntypes_state: number of state labels
             dim_state_embedding: dimensionality of state embedding.
         """
-        super().__init__()
+        super().__init__(degree_rbf, activation, dim_node_embedding)
         self.include_state = include_state
         self.ntypes_state = ntypes_state
-        self.dim_node_embedding = dim_node_embedding
         self.dim_edge_embedding = dim_edge_embedding
         self.dim_state_feats = dim_state_feats
         self.ntypes_node = ntypes_node
         self.dim_state_embedding = dim_state_embedding
         self.activation = activation
-        if ntypes_state and dim_state_embedding is not None:
+        if ntypes_state is not None and dim_state_embedding is not None:
             self.layer_state_embedding = nn.Embedding(ntypes_state, dim_state_embedding, device = device)  # type: ignore
         if ntypes_node is not None:
             self.layer_node_embedding = nn.Embedding(ntypes_node, dim_node_embedding, device = device)
         if dim_edge_embedding is not None:
             dim_edges = [degree_rbf, dim_edge_embedding]
             self.layer_edge_embedding = MLP(dim_edges, activation=activation, activate_last=True, device = device)
-
-    def forward(self, node_attr, edge_attr, focus_feat, state_attr):
-        """Output embedded features.
-
-        Args:
-            node_attr: node attribute
-            edge_attr: edge attribute
-            state_attr: state attribute
-
-        Returns:
-            node_feat: embedded node features
-            edge_feat: embedded edge features
-            state_feat: embedded state features
-        """
-        if self.ntypes_node is not None:
-            node_feat = self.layer_node_embedding(node_attr)
-        else:
-            node_embed = MLP([node_attr.shape[-1], self.dim_node_embedding], activation=self.activation)
-            node_feat = node_embed(node_attr.to(torch.float32))
-        if self.dim_edge_embedding is not None:
-            edge_feat = self.layer_edge_embedding(edge_attr.to(torch.float32))
-        else:
-            edge_feat = edge_attr
-        if self.include_state is True:
-            if self.ntypes_state and self.dim_state_embedding is not None:
-                state_feat = self.layer_state_embedding(state_attr)
-            elif self.dim_state_feats is not None:
-                state_attr = torch.unsqueeze(state_attr, 0)
-                state_embed = MLP([state_attr.shape[-1], self.dim_state_feats], activation=self.activation)
-                state_feat = state_embed(state_attr.to(torch.float32))
-            else:
-                state_feat = state_attr
-        else:
-            state_feat = None
-        return node_feat, edge_feat, state_feat
 
 
 class MEGNetRL(MEGNet, nn.Module, IOMixIn):
@@ -102,6 +67,7 @@ class MEGNetRL(MEGNet, nn.Module, IOMixIn):
         activation_type: str = "softplus2",
         include_state: bool = True,
         no_condition = False,
+        device: str = 'cuda',
         **kwargs,
     
     ):
@@ -116,10 +82,10 @@ class MEGNetRL(MEGNet, nn.Module, IOMixIn):
         if self.no_condition:
             print('Warning, no condition')
             dim_state_embedding -= 1
-        self.embedding = EmbeddingBlock(
+        self.embedding = EmbeddingBlockDev(
             degree_rbf=dim_edge_embedding,
             dim_node_embedding=dim_node_embedding,
-            ntypes_node=89,
+            ntypes_node=NUM_ACTIONS + 1,
             ntypes_state=ntypes_state,
             include_state=include_state,
             dim_state_embedding=dim_state_embedding,
@@ -129,19 +95,24 @@ class MEGNetRL(MEGNet, nn.Module, IOMixIn):
         edge_dims = [dim_edge_embedding, *hidden_layer_sizes_input]
         state_dims = [dim_state_embedding * 2, *hidden_layer_sizes_input]
         
-        self.edge_encoder = MLP(edge_dims, activation, activate_last=True)
-        self.node_encoder = MLP(node_dims, activation, activate_last=True)
-        self.state_encoder = MLP(state_dims, activation, activate_last=True)
+        self.edge_encoder = MLP(edge_dims, activation, activate_last=True).to(device = device)
+        self.node_encoder = MLP(node_dims, activation, activate_last=True).to(device = device)
+        self.state_encoder = MLP(state_dims, activation, activate_last=True).to(device = device)
 
         dim_blocks_in = hidden_layer_sizes_input[-1]
         dim_blocks_out = hidden_layer_sizes_conv[-1]
 
         self.output_proj = MLP(
             # S2S cats q_star to output producing double the dim
-            dims=[2 * 2 * dim_blocks_out + dim_blocks_out, *hidden_layer_sizes_output, 88],
+            dims=[2 * 2 * dim_blocks_out + dim_blocks_out, *hidden_layer_sizes_output, NUM_ACTIONS],
             activation=activation,
             activate_last=False,
-        )
+        )   
+
+        self.blocks = self.blocks.to(device = device)
+        self.output_proj = self.output_proj.to(device = device)
+        self.device = device
+
     def forward(
         self,
         graph: dgl.DGLGraph,
@@ -162,23 +133,24 @@ class MEGNetRL(MEGNet, nn.Module, IOMixIn):
         """
         if self.no_condition:
             state_feat = state_feat[:,:-1]
-        edge_feat = self.bond_expansion(edge_feat)
+        try:
+            edge_feat = self.bond_expansion(edge_feat).to(device = self.device)
+        except:
+            edge_feat = self.bond_expansion(edge_feat.cpu()).to(device = self.device)
         node_feat = node_feat.to(dtype = torch.int64)
-        focus_feat = torch.split(node_feat[:,-1], graph.batch_num_nodes().cpu().tolist())
-        focus_feat = torch.tensor([torch.where(f)[0][0] if torch.where(f)[0].size()[0] else 20 for f in focus_feat]).to(device = 'cuda')
-        node_feat = torch.argmax(node_feat[:,:-1], dim = 1)
+        focus_feat = graph.focus 
         node_feat, edge_feat, focus_feat = self.embedding(node_feat, edge_feat, focus_feat)
         edge_feat = self.edge_encoder(edge_feat.to(dtype = torch.float32))
         node_feat = self.node_encoder(node_feat)
         state_feat = torch.cat((state_feat, focus_feat), dim = 1)
         state_feat = self.state_encoder(state_feat.to(dtype = torch.float32))
-        
+
         for block in self.blocks:
             output = block(graph, edge_feat, node_feat, state_feat)
             edge_feat, node_feat, state_feat = output
 
-        node_vec = self.node_s2s(graph, node_feat)
-        edge_vec = self.edge_s2s(graph, edge_feat)
+        node_vec = self.node_s2s.to(device = self.device)(graph, node_feat)
+        edge_vec = self.edge_s2s.to(device = self.device)(graph, edge_feat)
 
         node_vec = torch.squeeze(node_vec)
         edge_vec = torch.squeeze(edge_vec)

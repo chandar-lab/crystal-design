@@ -2,7 +2,6 @@ import os
 from typing import Any, Dict, List, Optional
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from pathlib import Path
 import random
 import uuid
 from crystal_design.agents import MEGNetRL
@@ -21,49 +20,22 @@ import wandb
 from tqdm import tqdm 
 from crystal_design.utils import cart_to_frac_coords
 from crystal_design.utils.compute_prop import Crystal
-import mendeleev
 from functools import partial
 import yaml
-from crystal_design.utils import to_cif
+from crystal_design.utils import to_cif, create_sublists
+from crystal_design.utils.variables import SPECIES_IND
 
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 TensorBatch = List[torch.Tensor]
 NUM_CLASSES = 88
 PAD_SEQ = -10000
 
-
-ELEMENTS = ['Cs', 'Er', 'Xe', 'Tc', 'Eu', 'Gd', 'Li', 'Hf', 'Dy', 'F', 'Te', 'Ti', 'Hg', 'Bi', 'Pr', 'Ne', 'Sm', 'Be', 'Au', 'Pb', 'C', 'Zr', 'Ir', 'Pd', 'Sc', 'Yb', 'Os', 'Nb', 'Ac', 'Rb', 'Al', 'P', 'Ga', 'Na', 'Cr', 'Ta', 'Br', 'Pu', 'Ge', 'Tb', 'La', 'Se', 'V', 'Pa', 'Ni', 'In', 'Cu', 'Fe', 'Co', 'Pm', 'N', 'K', 'Ca', 'Rh', 'B', 'Tm', 'I', 'Ho', 'Sb', 'As', 'Tl', 'Ru', 'U', 'Np', 'Cl', 'Re', 'Ag', 'Ba', 'H', 'O', 'Mg', 'W', 'Sn', 'Mo', 'Pt', 'Zn', 'Sr', 'S', 'Kr', 'Cd', 'Si', 'Y', 'Lu', 'Th', 'Nd', 'Mn', 'He', 'Ce']
-
-TRANSITION_METALS = ['Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg']
-LANTHANIDES = ['La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu']
-ACTINIDES = ['Ac', 'Th', 'Pa', 'U', 'Np', 'Pu']
-NOBLE = ['Xe', 'Ne', 'Kr', 'He']
-HALOGENS = ['F', 'Br', 'Cl', 'I']
-G1 = ['Li', 'Na', 'K', 'Rb', 'Cs']
-G2 = ['Be', 'Mg', 'Ca', 'Sr', 'Ba']
-NONMETALS = ['H','B', 'C', 'N', 'O', 'Si', 'P', 'S', 'As', 'Se', 'Te']
-POST_TRANSITION_METALS = ['Al', 'Ga', 'Ge', 'In', 'Sn', 'Sb', 'Tl', 'Pb', 'Bi']
-
-
-SPECIES_IND = {i:mendeleev.element(ELEMENTS[i]).atomic_number for i in range(len(ELEMENTS))}
-SPECIES_IND_INV = {mendeleev.element(ELEMENTS[i]).atomic_number:i for i in range(len(ELEMENTS))}
-N_ATOMS_PEROV = 1
-
-def create_sublists(A, B):
-    output = []
-    start_index = 0
-
-    for num_items in B:
-        sublist = torch.tensor(A[start_index:start_index+num_items.numpy()])
-        output.append(sublist)
-        start_index += num_items
-
-    return output
-
 @dataclass
-class TrainConfig:
+class Config:
     # Experiment
     device: str = "cuda"
-    data_path: str = "crystal_design/offline/trajectories/train_Eformx5.pt"
+    data_path: str = "../offline/trajectories/train_Eformx5_small.pt" # path to trajectory data
     env: str = "crystal"  # environment name
     seed: int = 0  # random seed
     num_timesteps: int = int(2e5)   # Number of time steps
@@ -81,21 +53,22 @@ class TrainConfig:
     cql_clip_diff_min: float = -np.inf  # Q-function lower loss clipping
     cql_clip_diff_max: float = np.inf  # Q-function upper loss clipping
     orthogonal_init: bool = True  # Orthogonal initialization
-    ## Added
+    ## Reward Design
     alpha1: float = 1.   # Design parameter of reward function
     alpha2: float = 10. # Design parameter of reward function
     beta1: float = 5. # Design parameter of reward function
     beta2: float = 3. # Design parameter of reward function
     p_hat: float = 1.12  # Target property
+    no_condition: bool = False # True if model is not conditioned by property
+    bc: bool = False # Behavioral cloning
     # Wandb logging
-    project: str = "CQL-NONMETALS"
-    group: str = "tmp"
-    name: str = "Run1"
-    no_condition: bool = False
-    bc: bool = False
-    wandb_path: str = "wandb"
-    eval_wandb_path: str = ''
-    mode: str = "train"
+    project: str = "CQL-NONMETALS"  # Wandb Project name
+    group: str = "tmp"  # Wandb Group name
+    name: str = "Run1"  # Wandb Run name
+    wandb_path: str = "wandb" # wandb folder path
+    eval_wandb_path: str = '' 
+    # Train / Eval Mode
+    mode: str = "train" # 'train' or 'eval'
 
     def __post_init__(self):
         self.name = f"{self.name}-{self.env}-{str(uuid.uuid4())[:8]}"
@@ -133,8 +106,8 @@ class ReplayBufferCQL:
         self._next_states_eval = data["next_observations"]
         self._dones_eval = data["terminals"]
         self.eval_dataset = [[self._states_eval[i],self._actions_eval[i], self._next_states_eval[i],  self._rewards_eval[i], self._dones_eval[i]] for i in init_indices]
-        self._focus_all = [torch.where(self._next_states_eval[i]['atomic_number'][:,-1])[0] for i in range(n_transitions)]   
-        self._focus_all = [self._focus_all[i] if self._focus_all[i].size()[0] > 0 else torch.tensor(PAD_SEQ) for i in range(len(self._focus_all))] 
+        self._focus_all = [self._next_states_eval[i]['atomic_number'][-1] for i in range(n_transitions)]   
+        self._focus_all = [self._focus_all[i] if self._focus_all[i] < 20 else torch.tensor(PAD_SEQ) for i in range(len(self._focus_all))] 
         self._focus_all = create_sublists(self._focus_all, n_sites)
         self._focus_all = pad_sequence(self._focus_all, batch_first = True, padding_value = PAD_SEQ)
         self._pointer_eval = n_transitions
@@ -157,6 +130,9 @@ class ReplayBufferCQL:
 
 
 def set_seed(seed: int):
+    """
+    Random seed
+    """
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -164,6 +140,9 @@ def set_seed(seed: int):
 
 
 def wandb_init(config: dict) -> None:
+    """
+    Initialize wandb instance
+    """
     wandb.init(
         config=config,
         resume=True,
@@ -209,7 +188,7 @@ class CrystalCQL:
         self.cql_clip_diff_min = cql_clip_diff_min
         self.cql_clip_diff_max = cql_clip_diff_max
         self._device = device
-        self.bc = bc
+        self.bc = bc # Behavioral Cloning mode
         self.total_it = step
         self.device = device
 
@@ -225,6 +204,7 @@ class CrystalCQL:
             self.target_qnet.load_state_dict(state_dict['qnet1_target'])
             self.qnet_optimizer.load_state_dict(state_dict['qnet_optimizer'])
 
+        # Initialize reward design parameters and target value
         self.p_hat = p_hat
         self.alpha1 = alpha1
         self.alpha2 = alpha2
@@ -234,15 +214,20 @@ class CrystalCQL:
         self.total_it = step
 
     def update_target_network(self, soft_target_update_rate: float):
+        """
+        Soft updating target network
+        """
         soft_update(self.target_qnet, self.qnet, soft_target_update_rate)
 
     def _q_loss(
         self, observations, actions, next_observations, rewards, bandgaps, dones, log_dict
     ):
         batch_size = observations.lengths_angles_focus.shape[0]
+        # Get Q values of all state-action pairs
         q1_all = self.qnet(observations,observations.edata['e_feat'], observations.ndata['atomic_number'], observations.lengths_angles_focus)
         pred_actions = torch.argmax(q1_all, dim = 1)
         
+        # Q values of state-action pairs in the dataset
         q1_predicted = q1_all[range(batch_size), actions]
         actions = actions.cuda()
         assert pred_actions.shape == actions.shape
@@ -281,7 +266,9 @@ class CrystalCQL:
         ).mean()
         
         cql_min_qf1_loss = cql_qf1_diff * self.cql_min_q_weight
+        # Compute total loss
         qf_loss = cql_min_qf1_loss + 0.5 * qf1_loss 
+
         log_dict.update(
             dict(
                 qf1_loss=qf1_loss.item(),
@@ -289,14 +276,11 @@ class CrystalCQL:
                 average_target_q=target_q_values.mean().item(),
                 accuracy = acc,
                 precision = prec,
-            )
-        )
-        log_dict.update(
-            dict(
                 cql_min_qf1_loss=cql_min_qf1_loss.mean().item(),
                 cql_qf1_diff=cql_qf1_diff.mean().item(),
             )
         )
+
         return qf_loss, pred_actions
 
     def supervised_loss(self, observations, actions, log_dict):
@@ -307,11 +291,15 @@ class CrystalCQL:
         q1_all = self.qnet(observations,observations.edata['e_feat'], observations.ndata['atomic_number'], observations.lengths_angles_focus)
         pred_actions = torch.argmax(q1_all, dim = 1)
         actions = actions.cuda()
+
+        # Categorical Cross Entropy Loss
         loss = F.cross_entropy(q1_all, actions)
+
         assert pred_actions.shape == actions.shape
         prec_calc = MulticlassPrecision(num_classes = NUM_CLASSES, average = 'macro')
         prec = prec_calc.update(pred_actions.cpu(), actions.cpu()).compute()
         acc = torch.sum(pred_actions == actions).item() / batch_size
+
         log_dict.update(
             dict(
                 qf1_loss=loss.item(),
@@ -325,37 +313,35 @@ class CrystalCQL:
  
         observations = observations.to(device = self.device)
         observations.lengths_angles_focus = observations.lengths_angles_focus.to(device = self.device)
+        observations.focus = observations.focus.to(device = self.device)
         if policy == 'random':
             pred_actions = torch.randint(0, NUM_CLASSES, (1,))
         else:
             q1_all = self.qnet(observations,observations.edata['e_feat'], observations.ndata['atomic_number'], observations.lengths_angles_focus)
             pred_actions = (torch.argmax(q1_all)) ### Nodes x 1 
         
-        atomic_number = observations.ndata['atomic_number']   ### Nodes X (D + 2)
-        curr_focus = atomic_number[:,-1]
-        index_curr_focus = torch.where(curr_focus)[0]
+        atomic_number = deepcopy(observations.ndata['atomic_number'])   ### Nodes X (D + 2)
+        index_curr_focus = observations.focus
         n = index_curr_focus.shape[0]
         try:
             t = pred_actions.shape[0]
         except:
             t = 1
-        atomic_number[:, -2][index_curr_focus] = 0.  ## Correct
-        try:
-            atomic_number[index_curr_focus, pred_actions[t-n:]] = 1. ## Could lead to index mismatch issues
-        except:
-            atomic_number[index_curr_focus, pred_actions] = 1.
+        atomic_number[index_curr_focus] = pred_actions
         next_focus = batch_focus[:,step]
-        cum_sum_nsites = torch.cat((torch.tensor([0]), torch.cumsum(n_sites, dim = 0)[:-1]))
-        next_focus = next_focus + cum_sum_nsites
-        next_focus = next_focus[torch.where(next_focus >= 0)[0]]
-        current_focus = torch.where(atomic_number[:, -1])[0] 
-        atomic_number[:, -1][current_focus] = 0.
-        atomic_number[:, -1][next_focus] = 1.
+        observations.focus = next_focus.to(device = self.device)
         observations.ndata['atomic_number'] = atomic_number
 
         return observations, pred_actions, index_curr_focus
 
     def train(self, batch: TensorBatch) -> Dict[str, float]:
+        """
+        Performs one gradient step with a batch of transitions
+        Arguments
+            batch: batch of transitions
+        Returns
+            log_dict: log dictionary
+        """
         (
             observations,
             actions,
@@ -367,17 +353,21 @@ class CrystalCQL:
         self.total_it += 1
 
         log_dict = {}
+        
+        # Transfer to device
         observations = observations.to(device = self.device)
+        observations.focus = observations.focus.to(device = self.device)
         observations.lengths_angles_focus = observations.lengths_angles_focus.to(device = self.device)
         next_observations = next_observations.to(device = self.device)
         next_observations.lengths_angles_focus = next_observations.lengths_angles_focus.to(device = self.device)
-        """ Q function loss """
-        if self.bc == True:
+        next_observations.focus = next_observations.focus.to(device = self.device)
+        
+        if self.bc == True: ## Behavioral Cloning
             qf_loss = self.supervised_loss(observations, actions, log_dict)
-        else:
+        else: ## CQL
             qf_loss, pred_actions = self._q_loss(
                     observations, actions, next_observations, rewards, bandgaps.to(dtype = torch.float32), dones, log_dict
-                )  ### Return a_max of q1_predicted
+                )  
         
 
         self.qnet_optimizer.zero_grad()
@@ -385,12 +375,16 @@ class CrystalCQL:
         torch.nn.utils.clip_grad_norm_(self.qnet.parameters(), max_norm=5., error_if_nonfinite = True)
         self.qnet_optimizer.step()
 
+        # Update Target
         if self.total_it % self.target_update_period == 0:
             self.update_target_network(self.soft_target_update_rate)
 
         return log_dict
 
     def state_dict(self) -> Dict[str, Any]:
+        """
+        Return state_dict dictionary
+        """
         return {
             "qnet1": self.qnet.state_dict(),
             "qnet1_target": self.target_qnet.state_dict(),
@@ -399,6 +393,9 @@ class CrystalCQL:
         }
 
     def load_state_dict(self, state_dict: Dict[str, Any]):
+        """
+        Load model from state_dict
+        """
         self.qnet.load_state_dict(state_dict=state_dict["qnet1"])
         self.target_qnet.load_state_dict(state_dict=state_dict["qnet1_target"])
         self.qnet_optimizer.load_state_dict(
@@ -407,58 +404,74 @@ class CrystalCQL:
 
 
 def get_nsites(data):
+    """
+    Returns the number of sites for each crystal given data of transitions
+    """
     terminals = torch.tensor(data['terminals']).to(dtype = torch.int32)
     cum_sum_terminals = torch.where(terminals)[0]
     n_sites = torch.diff(cum_sum_terminals, prepend = torch.tensor([-1]))
     return n_sites
 
 @pyrallis.wrap()
-def train(config: TrainConfig, step = 0):
+def train(config: Config, step = 0):
+    """
+    Train function: Trains model based on Config. 
+    Performs evaluation if config.mode == 'eval'
+    """
+    # Evaluate if mode is eval
     if config.mode == 'eval':
-        data_path = '../offline/trajectories/val_mp_nonmetals_x1.pt'
+        data_path = '../offline/trajectories/val_mp_nonmetals_x1_small.pt'
         save_path = 'val_generated' 
         cif_path = '../offline/cifs_gen'
         cql_eval(data_path=data_path, save_path = save_path, cif_path = cif_path, policy = None)
         return config
+   
+    # Load Dataset
     dataset = torch.load(config.data_path)
-    replay_buffer = ReplayBuffer(   #Initializing replay buffer
+    
+    #Initializing replay buffer
+    replay_buffer = ReplayBuffer(   
         storage=ListStorage(max_size=config.buffer_size),
         batch_size = config.batch_size,
         collate_fn = partial(collate_function, p_hat = config.p_hat),
         pin_memory = True,
         prefetch = 32,
     )
+
+    # Get all transitions
     observations = dataset['observations']
     actions = dataset['actions']
     next_observations = dataset['next_observations']
     rewards = dataset['rewards']
     rewards = [torch.exp(-torch.tensor(r) / config.beta1) if r!= 0. else r for r in rewards]
-    bandgaps =  np.array([0.] * len(rewards))
+    bandgaps =  np.zeros(len(rewards)) 
     tmp_ind = np.where(np.array(dataset['rewards']))[0]
     bandgaps[tmp_ind] = np.array(dataset['bandgaps'])
     terminals = dataset['terminals']
     data = [(ob, a, nob, r, bg, done) for ob, a, nob, r, bg, done in zip(observations, actions, next_observations, rewards, bandgaps, terminals) ]
-    index = replay_buffer.extend(data)
+    replay_buffer.extend(data)
+
+    # Checkpoint path
     if config.checkpoints_path is not None:
-        print(f"Checkpoints path: {config.checkpoints_path}")
         os.makedirs(config.checkpoints_path, exist_ok=True)
         with open(os.path.join(config.checkpoints_path, "config.yaml"), "w") as f:
             pyrallis.dump(config, f)
 
-    # Set seeds
+    # Random seed
     seed = config.seed
     set_seed(seed)
 
+    # Initialize Q-Net and optimizer
     qnet = MEGNetRL(no_condition = config.no_condition)
     qnet_optimizer = torch.optim.Adam(list(qnet.parameters()), config.qf_lr)
 
     
     kwargs = {
-        "qnet": qnet,
-        "qnet_optimizer": qnet_optimizer,
-        "discount": config.discount,
-        "soft_target_update_rate": config.soft_target_update_rate,
-        "device": config.device,
+        "qnet": qnet, # Q network
+        "qnet_optimizer": qnet_optimizer, # Q network optimizer
+        "discount": config.discount, # Discount factor
+        "soft_target_update_rate": config.soft_target_update_rate, # Soft target update rate
+        "device": config.device, # Device
         # CQL
         "qf_lr": config.qf_lr,
         "target_update_period": config.target_update_period,
@@ -467,21 +480,22 @@ def train(config: TrainConfig, step = 0):
         "cql_clip_diff_min": config.cql_clip_diff_min,
         "cql_clip_diff_max": config.cql_clip_diff_max,
         'model_path': config.model_path,
+        'bc': config.bc,
         'step' : step,
+        # Reward
         'alpha1':config.alpha1,
         'alpha2': config.alpha2,
         'beta1': config.beta1,
         'beta2': config.beta2,
-        'bc': config.bc
     }
 
-    # Initialize actor
-    trainer = CrystalCQL(**kwargs)  ##INITIALIZING CQL Instance
+    # Initialize CQL Instance
+    trainer = CrystalCQL(**kwargs)  
     wandb_init(asdict(config))
     for t in tqdm(range(step, int(config.num_timesteps))):
         batch = replay_buffer.sample()  ## SAMPLE FROM BUFFER
         log_dict = trainer.train(batch)  
-        wandb.log(log_dict, step=trainer.total_it)
+        wandb.log(log_dict, step=trainer.total_it) ## Log data to wandb
     
         if t % 25000 == 0 and config.checkpoints_path:
             torch.save(
@@ -491,34 +505,45 @@ def train(config: TrainConfig, step = 0):
     return config
 
 def ohe_to_atom_type(atom_types):
-    atom_ind = torch.argmax(atom_types, dim = 1).tolist()
+    atom_ind = atom_types.tolist()
     atom_number = torch.tensor([SPECIES_IND[i] for i in atom_ind])
     return atom_number
 
 @torch.no_grad()
 @pyrallis.wrap()
-def cql_eval(config: TrainConfig, data_path, save_path, cif_path, policy = None, p_hat = 1.12):
-    replay_buffer = ReplayBufferCQL(   #Initializing replay buffer
+def cql_eval(config: Config, data_path, save_path, cif_path, policy = None):
+    """
+    Evaluation mode: The function loads a saved model and performs evaluation on validation data
+    """
+    # Initializing replay buffer
+    replay_buffer = ReplayBufferCQL(   
         config.buffer_size,
         config.device,
     )
+    # Load element categories
     categories = torch.load('../files/categories.pt')
+
+    # If loading through wandb path
     if config.eval_wandb_path:
-        eval_wandb_path = 'wandb/' + config.eval_wandb_path
+        eval_wandb_path = os.path.join(config.wandb_path ,config.eval_wandb_path)
         metadata = yaml.safe_load(open(os.path.join(eval_wandb_path , 'files/config.yaml'), 'r'))
         group = metadata['group']['value']
         seed = metadata['seed']['value']
         model_path = metadata['checkpoints_path']['value']
         state_dict = torch.load(os.path.join(model_path, 'checkpoint_250000.pt'))
         p_hat = metadata['p_hat']['value']
+
+    # If loading through model path (checkpoint) directly
     elif config.model_path:
         state_dict = torch.load(config.model_path)
         group = config.group
         seed = config.seed
         p_hat = config.p_hat
 
+    # Load QNetwork
     model = MEGNetRL(no_condition=config.no_condition)
     model.load_state_dict(state_dict['qnet1'])
+
     kwargs = {
         "qnet": model,
         "qnet_optimizer": torch.optim.Adam(list(model.parameters()), config.qf_lr),
@@ -533,27 +558,39 @@ def cql_eval(config: TrainConfig, data_path, save_path, cif_path, policy = None,
         "cql_clip_diff_min": config.cql_clip_diff_min,
         "cql_clip_diff_max": config.cql_clip_diff_max,
     }
+
+    # Initialize trainer
     trainer = CrystalCQL(**kwargs)
+    # Load validation data
     data = torch.load(data_path)
+    # Number of sites
     n_sites = get_nsites(data)
-    replay_buffer.load_dataset(data, n_sites)
-    loader_n = DataLoader(n_sites, batch_size = 1, num_workers = 0, shuffle = False)
-    loader_focus = DataLoader(replay_buffer._focus_all, batch_size = 1, num_workers = 0, shuffle = False)
-    eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 1, collate_fn = partial(collate_function_eval, p_hat = p_hat), shuffle = False)
+    replay_buffer.load_dataset(data, n_sites) ## Replay buffer for data
+    loader_n = DataLoader(n_sites, batch_size = 1, num_workers = 0, shuffle = False) ## Data loader for n_sites
+    loader_focus = DataLoader(replay_buffer._focus_all, batch_size = 1, num_workers = 0, shuffle = False) ## Data loader for focus
+    eval_dataloader = DataLoader(replay_buffer.eval_dataset, batch_size = 1, collate_fn = partial(collate_function_eval, p_hat = p_hat), shuffle = False) ## Data loader for transitions
+
+    # Initialize lists
     recons_acc_list = []
     pred_accuracy_list = []
     cat_acc_list = []
     obs_list = []
     state_dict_list = [] 
     inds = []
+
     for batch, batch_focus, n_sites_batch in tqdm(zip(eval_dataloader, loader_focus, loader_n)):
-        step = 0
         MAX_STEPS = batch_focus.shape[1]
-        observations = batch #batch[0]
+        observations = batch 
+
+        # Perform a rollout
         for step in range(MAX_STEPS):
             observations, pred_actions, prev_focus = trainer.eval(observations, batch_focus, n_sites_batch, step, policy)
             true_actions = observations.ndata['true_atomic_number'][prev_focus]
-        pred_types = torch.argmax(observations.ndata['atomic_number'], dim = 1)
+            if observations.focus == PAD_SEQ:
+                break
+
+        # Compute accuarcy, similarity, and exact reconstructions
+        pred_types = observations.ndata['atomic_number']
         pred_cat = categories[pred_types.cpu(),1]
         true_types = observations.ndata['true_atomic_number']
         true_cat = categories[true_types.cpu(),1]
@@ -561,8 +598,8 @@ def cql_eval(config: TrainConfig, data_path, save_path, cif_path, policy = None,
         pred_acc = torch.mean(matches.float())
         cat_acc = torch.mean((true_cat == pred_cat).float())
         matches = torch.split(matches, n_sites_batch.tolist())
-        pred_accuracy_list.append(pred_acc)
-        cat_acc_list.append(cat_acc)
+        pred_accuracy_list.append(pred_acc.item())
+        cat_acc_list.append(cat_acc.item())
         matches = torch.tensor([torch.prod(mat) for mat in matches])
         recons_acc = torch.mean(matches.float())
         recons_acc_list.append(recons_acc)
@@ -579,25 +616,25 @@ def cql_eval(config: TrainConfig, data_path, save_path, cif_path, policy = None,
         inds.append(batch.inds[0])
     
 
+    # Compute Validity
     opt_crys = p_map(lambda x: Crystal(x), state_dict_list, num_cpus = 16)
     valid = [crys.comp_valid for crys in opt_crys]
     print('Group: ', group)
     print('Validity: ', sum(valid) / len(state_dict_list))
     obs_list = [obs_list[i] for i in range(len(obs_list)) if valid[i]]
-    print(len(obs_list))
 
     print('Final recons accuracy = ', np.mean(recons_acc_list))
     print('Final pred accuracy = ', np.mean(pred_accuracy_list))
     print('Final Category Accuracy = ', np.mean(cat_acc_list))
 
-    if not os.path.isdir(save_path):
-        os.mkdir(save_path) 
-    if not os.path.isdir(cif_path):
-        os.mkdir(cif_path)
+    os.makedirs(save_path, exist_ok = True)
+    os.makedirs(cif_path, exist_ok = True)
 
+    # Store generated crystals
     save_path = os.path.join(save_path, group + f'_seed{seed}'  + '.pt')
     torch.save(obs_list, save_path)
     cif_path = os.path.join(cif_path, group + f'_seed{seed}')
+    # Convert to CIF files
     to_cif(data_path=save_path, save_path = cif_path)
     
 if __name__ == "__main__":
