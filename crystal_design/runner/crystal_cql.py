@@ -487,6 +487,7 @@ def train(config: Config, step = 0):
         'alpha2': config.alpha2,
         'beta1': config.beta1,
         'beta2': config.beta2,
+        'p_hat': config.p_hat,
     }
 
     # Initialize CQL Instance
